@@ -153,15 +153,20 @@ function doPost(e) {
     // Intentar parsear el JSON
     try {
       payload = JSON.parse(e.postData.contents);
+      Logger.log('Payload recibido: ' + JSON.stringify(payload).substring(0, 500));
     } catch (parseError) {
       throw new Error('JSON inválido: ' + parseError.toString());
     }
     
-    // NUEVO: Si es solicitud de guardar cuentas/convenios
-    if (payload && payload.action === 'saveAccounts') {
-      if (!payload.accounts) {
-        throw new Error('Falta el campo accounts en el payload');
+    // IMPORTANTE: Verificar action PRIMERO (verificación estricta)
+    if (payload && typeof payload === 'object' && payload.action === 'saveAccounts') {
+      Logger.log('Detectado action=saveAccounts');
+      
+      if (!payload.accounts || typeof payload.accounts !== 'object') {
+        throw new Error('Falta el campo accounts o no es un objeto');
       }
+      
+      Logger.log('Llamando saveAccounts con: ' + JSON.stringify(payload.accounts).substring(0, 200));
       
       const result = saveAccounts(payload.accounts);
       return ContentService
@@ -172,6 +177,8 @@ function doPost(e) {
         }))
         .setMimeType(ContentService.MimeType.JSON);
     }
+    
+    Logger.log('No es saveAccounts, procesando como consignaciones');
     
     // Por defecto: guardar registros de consignaciones
     const ss = SpreadsheetApp.getActiveSpreadsheet();

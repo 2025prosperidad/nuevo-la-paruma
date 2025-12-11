@@ -270,6 +270,10 @@ export const saveAccountsToSheets = async (
         convenios: convenios
       }
     };
+    
+    console.log('Enviando configuración a Sheets:', payload);
+    console.log('Total cuentas:', accounts.length);
+    console.log('Total convenios:', convenios.length);
 
     const response = await fetch(scriptUrl, {
       method: "POST",
@@ -284,21 +288,27 @@ export const saveAccountsToSheets = async (
     }
 
     const text = await response.text();
+    console.log('Respuesta del servidor:', text);
+    
     try {
       const json = JSON.parse(text);
+      console.log('Respuesta parseada:', json);
+      
       if (json.status === 'success') {
         return { success: true, message: json.message || "Configuración sincronizada correctamente." };
       } else if (json.status === 'error') {
+        console.error('Error del Script:', json);
         return { success: false, message: `Error del Script: ${json.message}` };
       }
     } catch (e) {
       console.warn("Response was not JSON:", text);
+      return { success: false, message: `Respuesta inválida del servidor: ${text}` };
     }
 
     return { success: true, message: "Configuración guardada correctamente." };
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error saving accounts:", error);
-    return { success: false, message: "Error de conexión. Verifica la URL del script." };
+    return { success: false, message: `Error: ${error.message || error.toString()}` };
   }
 };
