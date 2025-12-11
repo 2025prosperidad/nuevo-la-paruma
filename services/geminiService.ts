@@ -1,29 +1,36 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ExtractedData } from "../types";
 
-// Safely access process.env to avoid "process is not defined" runtime errors
-const getApiKey = () => {
+// Access API key - Vite will replace process.env.API_KEY at build time via define
+// Using a function to ensure it's evaluated at runtime
+const getApiKey = (): string => {
   try {
-    if (typeof process !== 'undefined' && process.env) {
-      return process.env.API_KEY;
-    }
+    // @ts-ignore - Vite defines these via define config
+    const key = (typeof process !== 'undefined' && process.env?.API_KEY)
+      || (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY)
+      || (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY);
+    return key || '';
   } catch (e) {
-    // Ignore error
+    return '';
   }
-  return '';
 };
 
+// Get API key - this will be replaced by Vite's define at build time
 const apiKey = getApiKey();
 
-if (!apiKey) {
-  console.warn("API_KEY is missing. AI features will not work.");
+if (!apiKey || apiKey === 'missing-key') {
+  console.error("GEMINI_API_KEY is missing. AI features will not work.");
+  console.error("Please set GEMINI_API_KEY in .env.local file");
+  console.error("Current apiKey value:", apiKey ? `${apiKey.substring(0, 10)}...` : 'empty');
+} else {
+  console.log("API Key loaded successfully:", apiKey.substring(0, 10) + '...');
 }
 
 const ai = new GoogleGenAI({ apiKey: apiKey || 'missing-key' });
 
 export const analyzeConsignmentImage = async (base64Image: string): Promise<ExtractedData> => {
   const modelId = "gemini-2.5-flash";
-  
+
   const prompt = `
     Analyze this image of a Colombian bank payment receipt (consignación or comprobante).
     Types: Redeban (Thermal paper), Bancolombia App, Nequi (Purple screenshot), Banco Agrario.
@@ -102,8 +109,20 @@ export const analyzeConsignmentImage = async (base64Image: string): Promise<Extr
     const data = JSON.parse(resultText) as ExtractedData;
     return data;
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error calling Gemini:", error);
-    throw error;
+
+    // Provide more helpful error messages
+    if (error?.message?.includes('API_KEY') || error?.message?.includes('api key')) {
+      throw new Error("API Key de Gemini no configurada. Verifica tu archivo .env.local");
+    }
+    if (error?.message?.includes('quota') || error?.message?.includes('limit')) {
+      throw new Error("Límite de cuota de API excedido. Verifica tu plan de Gemini.");
+    }
+    if (error?.message?.includes('invalid') || error?.message?.includes('unauthorized')) {
+      throw new Error("API Key inválida. Verifica tu clave de Gemini.");
+    }
+
+    throw new Error(`Error al procesar imagen: ${error?.message || 'Error desconocido'}`);
   }
 };
