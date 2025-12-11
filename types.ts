@@ -19,7 +19,15 @@ export interface ExtractedData {
   amount: number;
   date: string; // ISO format YYYY-MM-DD
   time: string | null; // HH:MM usually found in Nequi or Redeban
-  uniqueTransactionId: string | null; // RRN, Approval Code, Receipt Number (MUST BE UNIQUE)
+  
+  // MÚLTIPLES NÚMEROS ÚNICOS - Todos deben validarse
+  uniqueTransactionId: string | null; // Primary ID (backward compatibility)
+  rrn: string | null; // RRN (Red de Recaudo) - Redeban
+  recibo: string | null; // Número de Recibo - Redeban
+  apro: string | null; // Código de Aprobación - Redeban
+  operacion: string | null; // Número de Operación - Banco Agrario, Bancolombia
+  comprobante: string | null; // Comprobante - Bancolombia App
+  
   paymentReference: string | null; // Client ID, Cedula, Ref 1 (CAN BE REPEATED)
   imageQualityScore: number; // 0-100
   isReadable: boolean;

@@ -103,14 +103,36 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                   <div className="font-medium text-gray-900">{record.date || 'N/A'}</div>
                   <div className="text-xs text-gray-500">{record.time || '--:--'}</div>
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  {record.uniqueTransactionId ? (
-                     <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded text-gray-700">
-                       {record.uniqueTransactionId}
-                     </span>
-                  ) : (
-                    <span className="text-xs text-gray-400 italic">No detectado</span>
-                  )}
+                <td className="px-4 py-3">
+                  {(() => {
+                    // Mostrar TODOS los números únicos disponibles
+                    const ids = [];
+                    if (record.rrn) ids.push({ label: 'RRN', value: record.rrn });
+                    if (record.recibo) ids.push({ label: 'RECIBO', value: record.recibo });
+                    if (record.apro) ids.push({ label: 'APRO', value: record.apro });
+                    if (record.operacion) ids.push({ label: 'OP', value: record.operacion });
+                    if (record.comprobante) ids.push({ label: 'COMP', value: record.comprobante });
+                    if (record.uniqueTransactionId && !ids.some(id => id.value === record.uniqueTransactionId)) {
+                      ids.push({ label: 'ID', value: record.uniqueTransactionId });
+                    }
+                    
+                    if (ids.length === 0) {
+                      return <span className="text-xs text-gray-400 italic">No detectado</span>;
+                    }
+                    
+                    return (
+                      <div className="space-y-1">
+                        {ids.map((id, idx) => (
+                          <div key={idx} className="flex items-center gap-1">
+                            <span className="text-[10px] font-bold text-gray-500 uppercase">{id.label}:</span>
+                            <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-700">
+                              {id.value}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap text-gray-600">
                   {record.paymentReference || '-'}

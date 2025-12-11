@@ -182,22 +182,76 @@ const App: React.FC = () => {
       }
     }
 
-    // A. TRANSACTION ID CHECK (Most reliable - ANY length)
-    // Si existe un ID de transacción, debe ser único (sin importar longitud)
-    if (data.uniqueTransactionId && data.uniqueTransactionId.trim().length > 0) {
-      const normalizedNewId = data.uniqueTransactionId.replace(/\D/g, '').trim();
+    // A. MÚLTIPLES NÚMEROS DE APROBACIÓN - TODOS DEBEN SER ÚNICOS
+    // Validar CADA número único que esté presente (RRN, RECIBO, APRO, OPERACION, COMPROBANTE)
+    
+    const uniqueIds = [
+      { field: 'RRN', value: data.rrn },
+      { field: 'RECIBO', value: data.recibo },
+      { field: 'APRO', value: data.apro },
+      { field: 'OPERACION', value: data.operacion },
+      { field: 'COMPROBANTE', value: data.comprobante },
+      { field: 'ID TRANSACCIÓN', value: data.uniqueTransactionId }
+    ];
+    
+    for (const idEntry of uniqueIds) {
+      if (!idEntry.value || idEntry.value.trim().length === 0) continue;
       
-      if (normalizedNewId.length > 0) {
-        const idDuplicate = allRecords.find(r => {
-          if (!r.uniqueTransactionId) return false;
-          const normalizedExistingId = r.uniqueTransactionId.replace(/\D/g, '').trim();
-          return normalizedExistingId === normalizedNewId;
+      const rawNewId = idEntry.value.trim();
+      const fieldName = idEntry.field;
+      
+      // NIVEL 1: Verificación EXACTA contra TODOS los campos de IDs en registros existentes
+      const exactDuplicate = allRecords.find(r => {
+        // Comparar contra TODOS los posibles campos de ID
+        const existingIds = [
+          r.rrn,
+          r.recibo,
+          r.apro,
+          r.operacion,
+          r.comprobante,
+          r.uniqueTransactionId
+        ];
+        
+        return existingIds.some(existingId => {
+          if (!existingId) return false;
+          const rawExisting = existingId.trim();
+          // Comparación case-insensitive
+          return rawExisting.toLowerCase() === rawNewId.toLowerCase();
+        });
+      });
+      
+      if (exactDuplicate) {
+        return { 
+          status: ValidationStatus.DUPLICATE, 
+          message: `⛔ ${fieldName} DUPLICADO: "${rawNewId}" ya existe en la base de datos` 
+        };
+      }
+      
+      // NIVEL 2: Verificación NUMÉRICA (solo dígitos, para detectar variaciones de formato)
+      const normalizedNew = rawNewId.replace(/\D/g, '');
+      
+      if (normalizedNew.length >= 4) {
+        const numericDuplicate = allRecords.find(r => {
+          const existingIds = [
+            r.rrn,
+            r.recibo,
+            r.apro,
+            r.operacion,
+            r.comprobante,
+            r.uniqueTransactionId
+          ];
+          
+          return existingIds.some(existingId => {
+            if (!existingId) return false;
+            const normalizedExisting = existingId.replace(/\D/g, '');
+            return normalizedExisting.length >= 4 && normalizedExisting === normalizedNew;
+          });
         });
         
-        if (idDuplicate) {
+        if (numericDuplicate) {
           return { 
             status: ValidationStatus.DUPLICATE, 
-            message: `ID Transacción duplicado: ${data.uniqueTransactionId}` 
+            message: `⛔ ${fieldName} DUPLICADO: "${rawNewId}" (coincide numéricamente: ${normalizedNew})` 
           };
         }
       }
@@ -544,11 +598,14 @@ const App: React.FC = () => {
             )}
 
             <div className="bg-indigo-50 p-4 rounded-xl text-sm text-indigo-800">
-              <p className="font-bold mb-2">Validación Inteligente:</p>
+              <p className="font-bold mb-2">Validación Exhaustiva:</p>
               <ul className="list-disc pl-4 space-y-1 text-xs">
+                <li><strong>⛔ Número de Aprobación:</strong> Debe ser ÚNICO. No se permiten duplicados.</li>
+                <li><strong>📸 Imagen:</strong> Detecta si la misma foto se sube dos veces.</li>
                 <li><strong>Calidad:</strong> Mínimo 3 de 5 estrellas (60/100).</li>
-                <li><strong>Recibos Físicos:</strong> Se validan por número de Recibo/RRN.</li>
-                <li><strong>Capturas Nequi:</strong> Se validan por Fecha + Hora + Valor + Cédula.</li>
+                <li><strong>Recibos Físicos:</strong> Validados por RRN/Recibo único.</li>
+                <li><strong>Capturas Nequi:</strong> Validados por Fecha + Hora + Valor exacto.</li>
+                <li><strong>Convenios:</strong> Los convenios pueden repetirse, pero NO los recibos.</li>
               </ul>
             </div>
           </div>
