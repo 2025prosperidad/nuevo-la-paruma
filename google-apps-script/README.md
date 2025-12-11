@@ -26,12 +26,20 @@ Este script permite:
 2. Ve a **Extensiones** → **Apps Script**
 3. Elimina el código predeterminado
 4. Copia y pega el contenido del archivo `Code.gs`
-5. **IMPORTANTE**: Actualiza estas líneas con tus IDs:
+5. **IMPORTANTE**: Actualiza solo esta línea con tu ID de carpeta:
    ```javascript
-   const SPREADSHEET_ID = 'TU_ID_AQUI'; // ID del Paso 2
    const DRIVE_FOLDER_ID = 'TU_ID_AQUI'; // ID del Paso 1
    ```
-6. Guarda el proyecto con un nombre como "Consignaciones API"
+   **NOTA:** El script usa automáticamente `getActiveSpreadsheet()`, no necesitas el SPREADSHEET_ID
+   
+6. **Verifica el nombre de tu hoja:**
+   - Por defecto usa `'Hoja 1'` para consignaciones
+   - Si tu hoja se llama diferente, cambia:
+     ```javascript
+     const CONSIGNACIONES_SHEET = 'TU_NOMBRE_DE_HOJA';
+     ```
+   
+7. Guarda el proyecto con un nombre como "Consignaciones API"
 
 ## Paso 4: Desplegar como Web App
 

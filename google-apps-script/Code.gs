@@ -1,52 +1,151 @@
 // ===========================================
 // SCRIPT DE GOOGLE APPS PARA VALIDACIÓN DE CONSIGNACIONES
-// Guarda datos en Google Sheets e imágenes en Google Drive
+// Integrado con funcionalidad de Cuentas e Imágenes en Drive
 // ===========================================
 
 // CONFIGURACIÓN - ACTUALIZA ESTOS IDs
-const SPREADSHEET_ID = 'TU_ID_DE_GOOGLE_SHEET_AQUI'; // ID de tu Google Sheet
+const SPREADSHEET_ID = 'TU_ID_DE_GOOGLE_SHEET_AQUI'; // O usa getActiveSpreadsheet()
 const DRIVE_FOLDER_ID = 'TU_ID_DE_CARPETA_DRIVE_AQUI'; // ID de carpeta en Drive para guardar imágenes
 
-// Nombre de las hojas (pestañas)
-const SHEET_NAME = 'Consignaciones';
-const ACCOUNTS_SHEET_NAME = 'Cuentas'; // Hoja para convenios y cuentas autorizadas
+// Nombres de hojas
+const CONSIGNACIONES_SHEET = 'Hoja 1'; // Tu hoja actual de consignaciones
+const ACCOUNTS_SHEET_NAME = 'Cuentas'; // Nueva hoja para convenios/cuentas
 
 // ===========================================
-// FUNCIÓN PRINCIPAL - Maneja solicitudes GET y POST
+// FUNCIÓN GET - Lee datos y configuración
 // ===========================================
 function doGet(e) {
-  try {
-    const action = e.parameter.action || 'records';
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // Modo debug - ver todas las hojas
+  if (e.parameter.debug === 'true') {
+    const sheets = ss.getSheets();
+    const debugInfo = {
+      spreadsheetName: ss.getName(),
+      sheets: sheets.map(sheet => ({
+        name: sheet.getName(),
+        rows: sheet.getLastRow(),
+        cols: sheet.getLastColumn(),
+        headers: sheet.getLastRow() > 0 ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0] : []
+      }))
+    };
     
-    // Si solicita configuración de cuentas
-    if (action === 'accounts') {
+    return ContentService.createTextOutput(JSON.stringify(debugInfo, null, 2))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  // NUEVO: Si solicita configuración de cuentas
+  if (e.parameter.action === 'accounts') {
+    try {
       const accounts = getAccounts();
       return ContentService
         .createTextOutput(JSON.stringify({ status: 'success', data: accounts }))
         .setMimeType(ContentService.MimeType.JSON);
+    } catch (error) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ 
+          status: 'error', 
+          message: error.toString() 
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+  
+  // Por defecto: obtener registros de consignaciones
+  const sheet = ss.getSheetByName(CONSIGNACIONES_SHEET);
+  
+  if (!sheet) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'error',
+      message: `La hoja "${CONSIGNACIONES_SHEET}" no existe`
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  try {
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+    
+    if (lastRow === 0 || lastRow === 1) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'success',
+        data: [],
+        message: 'No hay datos en la hoja',
+        count: 0,
+        total: 0
+      })).setMimeType(ContentService.MimeType.JSON);
     }
     
-    // Si solicita registros (comportamiento por defecto)
-    const limit = parseInt(e.parameter.limit) || 100;
-    const estado = e.parameter.estado || null;
-    const banco = e.parameter.banco || null;
+    // Obtener encabezados y datos
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
     
-    const data = getRecords(limit, estado, banco);
+    // Convertir a array de objetos
+    const records = data.map((row, index) => {
+      const record = {};
+      headers.forEach((header, colIndex) => {
+        let value = row[colIndex];
+        
+        // Formatear fechas a string legible
+        if (value instanceof Date) {
+          value = Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+        }
+        
+        // Limpiar valores vacíos
+        if (value === '') {
+          value = null;
+        }
+        
+        record[header] = value;
+      });
+      return record;
+    });
     
-    return ContentService
-      .createTextOutput(JSON.stringify({ status: 'success', data: data }))
-      .setMimeType(ContentService.MimeType.JSON);
-      
+    // Aplicar filtros (tu lógica original)
+    const params = e.parameter;
+    let filteredRecords = records;
+    
+    if (params.estado) {
+      filteredRecords = filteredRecords.filter(r => 
+        r.Estado && r.Estado.toLowerCase() === params.estado.toLowerCase()
+      );
+    }
+    
+    if (params.banco) {
+      filteredRecords = filteredRecords.filter(r => 
+        r.Banco && r.Banco.toLowerCase().includes(params.banco.toLowerCase())
+      );
+    }
+    
+    // ... (resto de filtros según tu código original)
+    
+    // Paginación
+    const limit = params.limit ? parseInt(params.limit) : filteredRecords.length;
+    const offset = params.offset ? parseInt(params.offset) : 0;
+    const paginatedRecords = filteredRecords.slice(offset, offset + limit);
+    
+    // Respuesta
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'success',
+      count: paginatedRecords.length,
+      total: filteredRecords.length,
+      totalRecords: records.length,
+      offset: offset,
+      limit: limit,
+      data: paginatedRecords
+    })).setMimeType(ContentService.MimeType.JSON);
+    
   } catch (error) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ 
-        status: 'error', 
-        message: error.toString() 
-      }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'error',
+      message: error.toString(),
+      stack: error.stack
+    })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
+// ===========================================
+// FUNCIÓN POST - Guarda consignaciones o configuración
+// ===========================================
 function doPost(e) {
   try {
     let payload;
@@ -58,9 +157,8 @@ function doPost(e) {
       throw new Error('JSON inválido: ' + parseError.toString());
     }
     
-    // IMPORTANTE: Verificar el tipo de solicitud PRIMERO antes de validar estructura
+    // NUEVO: Si es solicitud de guardar cuentas/convenios
     if (payload && payload.action === 'saveAccounts') {
-      // Guardar configuración de cuentas/convenios
       if (!payload.accounts) {
         throw new Error('Falta el campo accounts en el payload');
       }
@@ -76,92 +174,124 @@ function doPost(e) {
     }
     
     // Por defecto: guardar registros de consignaciones
-    if (!Array.isArray(payload)) {
-      throw new Error('El payload debe ser un array de registros o tener action=saveAccounts');
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONSIGNACIONES_SHEET);
+    
+    if (!sheet) {
+      throw new Error(`La hoja "${CONSIGNACIONES_SHEET}" no existe`);
     }
     
-    const result = saveRecords(payload);
+    // Si es la primera vez, crear encabezados
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow([
+        "Timestamp",
+        "Estado",
+        "Banco",
+        "Tipo Pago",
+        "Valor",
+        "Fecha Transacción",
+        "Hora",
+        "Número Referencia",
+        "Cuenta Destino",
+        "Titular Cuenta Destino",
+        "Ciudad",
+        "Motivo Rechazo",
+        "URL Imagen",  // NUEVO: columna para URL de Drive
+        "Cuenta Origen",
+        "Nombre Consignante",
+        "Descripción",
+        "Número Operación",
+        "Convenio",
+        "Sucursal",
+        "Cajero"
+      ]);
+    }
     
-    return ContentService
-      .createTextOutput(JSON.stringify({ 
-        status: 'success', 
-        message: `${result.saved} registros guardados correctamente`,
-        saved: result.saved,
-        errors: result.errors
-      }))
-      .setMimeType(ContentService.MimeType.JSON);
+    // Procesar uno o varios registros
+    const rows = Array.isArray(payload) ? payload : [payload];
+    const addedRecords = [];
+    
+    rows.forEach((r, index) => {
+      try {
+        // Validar campos requeridos
+        if (!r.banco) {
+          throw new Error('El campo "banco" es obligatorio');
+        }
+        
+        // NUEVO: Procesar imagen si existe
+        let imageUrl = '';
+        if (r.imageBase64 && r.imageBase64.length > 100) {
+          try {
+            imageUrl = saveImageToDrive(
+              r.imageBase64, 
+              r.numeroReferencia || `recibo_${Date.now()}_${index}`
+            );
+          } catch (imgError) {
+            Logger.log('Error guardando imagen: ' + imgError.toString());
+            imageUrl = 'Error al guardar imagen';
+          }
+        }
+        
+        const now = new Date();
+        const fechaProcesamiento = r.fechaProcesamiento || Utilities.formatDate(now, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+        
+        const rowData = [
+          fechaProcesamiento,
+          r.estado || 'Pendiente',
+          r.banco,
+          r.tipoPago || '',
+          r.valor || 0,
+          r.fechaTransaccion || '',
+          r.hora || '',
+          r.numeroReferencia || '',
+          r.cuentaDestino || '',
+          r.titularCuentaDestino || '',
+          r.ciudad || '',
+          r.motivoRechazo || '',
+          imageUrl,  // NUEVO: URL de la imagen
+          r.cuentaOrigen || '',
+          r.nombreConsignante || '',
+          r.descripcion || '',
+          r.numeroOperacion || '',
+          r.convenio || '',
+          r.sucursal || '',
+          r.cajero || ''
+        ];
+        
+        sheet.appendRow(rowData);
+        
+        addedRecords.push({
+          fechaProcesamiento: fechaProcesamiento,
+          estado: r.estado || 'Pendiente',
+          banco: r.banco,
+          urlImagen: imageUrl
+        });
+        
+      } catch (rowError) {
+        Logger.log(`Error procesando registro ${index}: ${rowError.toString()}`);
+        throw rowError;
+      }
+    });
+
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'success',
+      count: rows.length,
+      message: `${rows.length} registro(s) agregado(s) exitosamente`,
+      data: addedRecords
+    })).setMimeType(ContentService.MimeType.JSON);
       
   } catch (error) {
     Logger.log('Error en doPost: ' + error.toString());
-    return ContentService
-      .createTextOutput(JSON.stringify({ 
-        status: 'error', 
-        message: 'Error del Script: ' + error.toString(),
-        stack: error.stack || ''
-      }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'error',
+      message: 'Error del Script: ' + error.toString(),
+      stack: error.stack || ''
+    })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
 // ===========================================
-// GUARDAR REGISTROS EN GOOGLE SHEETS
-// ===========================================
-function saveRecords(records) {
-  const sheet = getOrCreateSheet();
-  let saved = 0;
-  const errors = [];
-  
-  // Asegurar que existe la fila de encabezados
-  ensureHeaders(sheet);
-  
-  records.forEach((record, index) => {
-    try {
-      // Procesar imagen si existe
-      let imageUrl = '';
-      if (record.imageBase64 && record.imageBase64.length > 100) {
-        imageUrl = saveImageToDrive(
-          record.imageBase64, 
-          record.numeroReferencia || `recibo_${Date.now()}_${index}`
-        );
-      }
-      
-      // Preparar fila de datos
-      const row = [
-        new Date(), // Timestamp
-        record.estado || 'Aceptada',
-        record.banco || '',
-        record.tipoPago || '',
-        record.valor || 0,
-        record.fechaTransaccion || '',
-        record.hora || '',
-        record.numeroReferencia || '',
-        record.cuentaDestino || '',
-        record.titularCuentaDestino || 'Distribuidora La Paruma SAS',
-        record.ciudad || '',
-        record.motivoRechazo || '',
-        imageUrl, // URL de la imagen en Drive
-        record.cuentaOrigen || '',
-        record.nombreConsignante || '',
-        record.descripcion || '',
-        record.numeroOperacion || '',
-        record.convenio || '',
-        record.sucursal || '',
-        record.cajero || ''
-      ];
-      
-      sheet.appendRow(row);
-      saved++;
-      
-    } catch (err) {
-      errors.push(`Registro ${index}: ${err.toString()}`);
-    }
-  });
-  
-  return { saved, errors };
-}
-
-// ===========================================
-// GUARDAR IMAGEN EN GOOGLE DRIVE
+// NUEVO: GUARDAR IMAGEN EN GOOGLE DRIVE
 // ===========================================
 function saveImageToDrive(base64Data, fileName) {
   try {
@@ -184,133 +314,23 @@ function saveImageToDrive(base64Data, fileName) {
     // Guardar archivo
     const file = folder.createFile(blob);
     
-    // Hacer el archivo público (opcional - comenta estas líneas si quieres mantenerlo privado)
+    // Hacer el archivo público (opcional)
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
-    // Retornar URL para ver la imagen
+    // Retornar URL
     return file.getUrl();
     
   } catch (error) {
-    console.error('Error guardando imagen:', error);
+    Logger.log('Error guardando imagen: ' + error.toString());
     return `Error: ${error.toString()}`;
   }
 }
 
 // ===========================================
-// OBTENER REGISTROS DE GOOGLE SHEETS
-// ===========================================
-function getRecords(limit = 100, estadoFilter = null, bancoFilter = null) {
-  const sheet = getOrCreateSheet();
-  const data = sheet.getDataRange().getValues();
-  
-  if (data.length <= 1) {
-    return []; // Solo headers o vacío
-  }
-  
-  const headers = data[0];
-  const rows = data.slice(1); // Sin headers
-  
-  // Encontrar índices de columnas
-  const colIndexes = {
-    timestamp: headers.indexOf('Timestamp'),
-    estado: headers.indexOf('Estado'),
-    banco: headers.indexOf('Banco'),
-    tipoPago: headers.indexOf('Tipo Pago'),
-    valor: headers.indexOf('Valor'),
-    fechaTransaccion: headers.indexOf('Fecha Transacción'),
-    hora: headers.indexOf('Hora'),
-    numeroReferencia: headers.indexOf('Número Referencia'),
-    cuentaDestino: headers.indexOf('Cuenta Destino'),
-    titularCuentaDestino: headers.indexOf('Titular Cuenta Destino'),
-    ciudad: headers.indexOf('Ciudad'),
-    motivoRechazo: headers.indexOf('Motivo Rechazo'),
-    urlImagen: headers.indexOf('URL Imagen'),
-  };
-  
-  // Filtrar y mapear
-  let records = rows
-    .filter(row => {
-      if (estadoFilter && row[colIndexes.estado] !== estadoFilter) return false;
-      if (bancoFilter && row[colIndexes.banco] !== bancoFilter) return false;
-      return true;
-    })
-    .map(row => ({
-      'Timestamp': row[colIndexes.timestamp] || '',
-      'Estado': row[colIndexes.estado] || '',
-      'Banco': row[colIndexes.banco] || '',
-      'Tipo Pago': row[colIndexes.tipoPago] || '',
-      'Valor': row[colIndexes.valor] || 0,
-      'Fecha Transacción': row[colIndexes.fechaTransaccion] || '',
-      'Hora': row[colIndexes.hora] || '',
-      'Número Referencia': row[colIndexes.numeroReferencia] || '',
-      'Cuenta Destino': row[colIndexes.cuentaDestino] || '',
-      'Titular Cuenta Destino': row[colIndexes.titularCuentaDestino] || '',
-      'Ciudad': row[colIndexes.ciudad] || '',
-      'Motivo Rechazo': row[colIndexes.motivoRechazo] || '',
-      'URL Imagen': row[colIndexes.urlImagen] || '',
-    }));
-  
-  // Ordenar por timestamp descendente (más reciente primero)
-  records.reverse();
-  
-  // Limitar cantidad
-  return records.slice(0, limit);
-}
-
-// ===========================================
-// UTILIDADES
-// ===========================================
-function getOrCreateSheet() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  let sheet = ss.getSheetByName(SHEET_NAME);
-  
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
-    ensureHeaders(sheet);
-  }
-  
-  return sheet;
-}
-
-function ensureHeaders(sheet) {
-  if (sheet.getLastRow() === 0) {
-    const headers = [
-      'Timestamp',
-      'Estado',
-      'Banco',
-      'Tipo Pago',
-      'Valor',
-      'Fecha Transacción',
-      'Hora',
-      'Número Referencia',
-      'Cuenta Destino',
-      'Titular Cuenta Destino',
-      'Ciudad',
-      'Motivo Rechazo',
-      'URL Imagen',
-      'Cuenta Origen',
-      'Nombre Consignante',
-      'Descripción',
-      'Número Operación',
-      'Convenio',
-      'Sucursal',
-      'Cajero'
-    ];
-    sheet.appendRow(headers);
-    
-    // Formato de encabezados
-    const headerRange = sheet.getRange(1, 1, 1, headers.length);
-    headerRange.setFontWeight('bold');
-    headerRange.setBackground('#4285f4');
-    headerRange.setFontColor('#ffffff');
-  }
-}
-
-// ===========================================
-// GESTIÓN DE CUENTAS Y CONVENIOS
+// NUEVO: GESTIÓN DE CUENTAS Y CONVENIOS
 // ===========================================
 function getOrCreateAccountsSheet() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(ACCOUNTS_SHEET_NAME);
   
   if (!sheet) {
@@ -338,7 +358,7 @@ function getAccounts() {
   const data = sheet.getDataRange().getValues();
   
   if (data.length <= 1) {
-    return { accounts: [], convenios: [] }; // Solo headers o vacío
+    return { accounts: [], convenios: [] };
   }
   
   const headers = data[0];
