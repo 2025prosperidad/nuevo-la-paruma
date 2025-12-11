@@ -1,6 +1,9 @@
 # Google Apps Script - Instrucciones de Implementación
 
-Este script permite guardar las imágenes de los recibos en Google Drive y las URLs en Google Sheets.
+Este script permite:
+- Guardar imágenes de recibos en Google Drive
+- Almacenar URLs de imágenes en Google Sheets
+- Sincronizar configuración de cuentas y convenios
 
 ## Paso 1: Crear una carpeta en Google Drive
 

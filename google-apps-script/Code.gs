@@ -49,11 +49,22 @@ function doGet(e) {
 
 function doPost(e) {
   try {
-    const payload = JSON.parse(e.postData.contents);
+    let payload;
     
-    // Detectar el tipo de solicitud
-    if (payload.action === 'saveAccounts') {
+    // Intentar parsear el JSON
+    try {
+      payload = JSON.parse(e.postData.contents);
+    } catch (parseError) {
+      throw new Error('JSON inválido: ' + parseError.toString());
+    }
+    
+    // IMPORTANTE: Verificar el tipo de solicitud PRIMERO antes de validar estructura
+    if (payload && payload.action === 'saveAccounts') {
       // Guardar configuración de cuentas/convenios
+      if (!payload.accounts) {
+        throw new Error('Falta el campo accounts en el payload');
+      }
+      
       const result = saveAccounts(payload.accounts);
       return ContentService
         .createTextOutput(JSON.stringify({ 
@@ -66,7 +77,7 @@ function doPost(e) {
     
     // Por defecto: guardar registros de consignaciones
     if (!Array.isArray(payload)) {
-      throw new Error('El payload debe ser un array de registros');
+      throw new Error('El payload debe ser un array de registros o tener action=saveAccounts');
     }
     
     const result = saveRecords(payload);
@@ -81,10 +92,12 @@ function doPost(e) {
       .setMimeType(ContentService.MimeType.JSON);
       
   } catch (error) {
+    Logger.log('Error en doPost: ' + error.toString());
     return ContentService
       .createTextOutput(JSON.stringify({ 
         status: 'error', 
-        message: error.toString() 
+        message: 'Error del Script: ' + error.toString(),
+        stack: error.stack || ''
       }))
       .setMimeType(ContentService.MimeType.JSON);
   }
@@ -362,45 +375,62 @@ function getAccounts() {
 }
 
 function saveAccounts(accountsData) {
-  const sheet = getOrCreateAccountsSheet();
-  
-  // Limpiar datos existentes (excepto headers)
-  if (sheet.getLastRow() > 1) {
-    sheet.deleteRows(2, sheet.getLastRow() - 1);
+  try {
+    Logger.log('saveAccounts llamado con: ' + JSON.stringify(accountsData));
+    
+    const sheet = getOrCreateAccountsSheet();
+    
+    // Limpiar datos existentes (excepto headers)
+    if (sheet.getLastRow() > 1) {
+      sheet.deleteRows(2, sheet.getLastRow() - 1);
+    }
+    
+    let saved = 0;
+    
+    // Guardar cuentas
+    if (accountsData.accounts && Array.isArray(accountsData.accounts)) {
+      accountsData.accounts.forEach((account, index) => {
+        try {
+          const row = [
+            'ACCOUNT',
+            String(account.value || ''),
+            String(account.label || `Cuenta ${index + 1}`),
+            true,
+            new Date()
+          ];
+          sheet.appendRow(row);
+          saved++;
+        } catch (err) {
+          Logger.log('Error guardando cuenta ' + index + ': ' + err.toString());
+        }
+      });
+    }
+    
+    // Guardar convenios
+    if (accountsData.convenios && Array.isArray(accountsData.convenios)) {
+      accountsData.convenios.forEach((convenio, index) => {
+        try {
+          const row = [
+            'CONVENIO',
+            String(convenio.value || ''),
+            String(convenio.label || `Convenio ${index + 1}`),
+            true,
+            new Date()
+          ];
+          sheet.appendRow(row);
+          saved++;
+        } catch (err) {
+          Logger.log('Error guardando convenio ' + index + ': ' + err.toString());
+        }
+      });
+    }
+    
+    Logger.log('Total guardado: ' + saved);
+    return { saved };
+    
+  } catch (error) {
+    Logger.log('Error en saveAccounts: ' + error.toString());
+    throw error;
   }
-  
-  let saved = 0;
-  
-  // Guardar cuentas
-  if (accountsData.accounts) {
-    accountsData.accounts.forEach(account => {
-      const row = [
-        'ACCOUNT',
-        account.value,
-        account.label,
-        true,
-        new Date()
-      ];
-      sheet.appendRow(row);
-      saved++;
-    });
-  }
-  
-  // Guardar convenios
-  if (accountsData.convenios) {
-    accountsData.convenios.forEach(convenio => {
-      const row = [
-        'CONVENIO',
-        convenio.value,
-        convenio.label,
-        true,
-        new Date()
-      ];
-      sheet.appendRow(row);
-      saved++;
-    });
-  }
-  
-  return { saved };
 }
 
