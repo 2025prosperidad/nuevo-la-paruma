@@ -9,6 +9,8 @@ interface ConfigModalProps {
   onUpdateAccounts: (items: ConfigItem[]) => void;
   onUpdateConvenios: (items: ConfigItem[]) => void;
   onResetDefaults: () => void;
+  onSyncToSheets: () => void;
+  onLoadFromSheets: () => void;
 }
 
 export const ConfigModal: React.FC<ConfigModalProps> = ({
@@ -18,7 +20,9 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   convenios,
   onUpdateAccounts,
   onUpdateConvenios,
-  onResetDefaults
+  onResetDefaults,
+  onSyncToSheets,
+  onLoadFromSheets
 }) => {
   const [activeTab, setActiveTab] = useState<'ACCOUNTS' | 'CONVENIOS'>('ACCOUNTS');
   const [newValue, setNewValue] = useState('');
@@ -168,22 +172,55 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
 
         {/* Footer */}
         <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-between items-center">
-            <button 
-                onClick={() => {
-                    if(window.confirm('¿Estás seguro de restaurar los valores predeterminados? Se borrarán tus cambios personalizados.')) {
-                        onResetDefaults();
-                    }
-                }}
-                className="text-xs text-gray-500 hover:text-gray-800 underline"
-            >
-                Restaurar valores por defecto
-            </button>
-            <button
-                onClick={onClose}
-                className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-                Cerrar
-            </button>
+            <div className="flex gap-3 items-center">
+                <button 
+                    onClick={() => {
+                        if(window.confirm('¿Estás seguro de restaurar los valores predeterminados? Se borrarán tus cambios personalizados.')) {
+                            onResetDefaults();
+                        }
+                    }}
+                    className="text-xs text-gray-500 hover:text-gray-800 underline"
+                >
+                    Restaurar valores por defecto
+                </button>
+            </div>
+            
+            <div className="flex gap-3">
+                <button
+                    onClick={() => {
+                        if(window.confirm('¿Cargar configuración desde Google Sheets? Esto sobrescribirá la configuración local.')) {
+                            onLoadFromSheets();
+                        }
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 flex items-center gap-2"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Cargar desde Sheets
+                </button>
+                
+                <button
+                    onClick={() => {
+                        if(window.confirm('¿Guardar la configuración actual en Google Sheets? Esto sobrescribirá los datos en la hoja "Cuentas".')) {
+                            onSyncToSheets();
+                        }
+                    }}
+                    className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 flex items-center gap-2"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    Guardar en Sheets
+                </button>
+                
+                <button
+                    onClick={onClose}
+                    className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                    Cerrar
+                </button>
+            </div>
         </div>
       </div>
     </div>

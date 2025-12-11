@@ -7,14 +7,26 @@
 const SPREADSHEET_ID = 'TU_ID_DE_GOOGLE_SHEET_AQUI'; // ID de tu Google Sheet
 const DRIVE_FOLDER_ID = 'TU_ID_DE_CARPETA_DRIVE_AQUI'; // ID de carpeta en Drive para guardar imágenes
 
-// Nombre de la hoja (pestaña) donde se guardarán los registros
+// Nombre de las hojas (pestañas)
 const SHEET_NAME = 'Consignaciones';
+const ACCOUNTS_SHEET_NAME = 'Cuentas'; // Hoja para convenios y cuentas autorizadas
 
 // ===========================================
 // FUNCIÓN PRINCIPAL - Maneja solicitudes GET y POST
 // ===========================================
 function doGet(e) {
   try {
+    const action = e.parameter.action || 'records';
+    
+    // Si solicita configuración de cuentas
+    if (action === 'accounts') {
+      const accounts = getAccounts();
+      return ContentService
+        .createTextOutput(JSON.stringify({ status: 'success', data: accounts }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Si solicita registros (comportamiento por defecto)
     const limit = parseInt(e.parameter.limit) || 100;
     const estado = e.parameter.estado || null;
     const banco = e.parameter.banco || null;
@@ -37,13 +49,27 @@ function doGet(e) {
 
 function doPost(e) {
   try {
-    const data = JSON.parse(e.postData.contents);
+    const payload = JSON.parse(e.postData.contents);
     
-    if (!Array.isArray(data)) {
+    // Detectar el tipo de solicitud
+    if (payload.action === 'saveAccounts') {
+      // Guardar configuración de cuentas/convenios
+      const result = saveAccounts(payload.accounts);
+      return ContentService
+        .createTextOutput(JSON.stringify({ 
+          status: 'success', 
+          message: `${result.saved} cuentas/convenios guardados correctamente`,
+          saved: result.saved
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Por defecto: guardar registros de consignaciones
+    if (!Array.isArray(payload)) {
       throw new Error('El payload debe ser un array de registros');
     }
     
-    const result = saveRecords(data);
+    const result = saveRecords(payload);
     
     return ContentService
       .createTextOutput(JSON.stringify({ 
@@ -265,5 +291,116 @@ function ensureHeaders(sheet) {
     headerRange.setBackground('#4285f4');
     headerRange.setFontColor('#ffffff');
   }
+}
+
+// ===========================================
+// GESTIÓN DE CUENTAS Y CONVENIOS
+// ===========================================
+function getOrCreateAccountsSheet() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName(ACCOUNTS_SHEET_NAME);
+  
+  if (!sheet) {
+    sheet = ss.insertSheet(ACCOUNTS_SHEET_NAME);
+    ensureAccountsHeaders(sheet);
+  }
+  
+  return sheet;
+}
+
+function ensureAccountsHeaders(sheet) {
+  if (sheet.getLastRow() === 0) {
+    const headers = ['Tipo', 'Valor', 'Etiqueta', 'Activo', 'Fecha Creación'];
+    sheet.appendRow(headers);
+    
+    const headerRange = sheet.getRange(1, 1, 1, headers.length);
+    headerRange.setFontWeight('bold');
+    headerRange.setBackground('#34a853');
+    headerRange.setFontColor('#ffffff');
+  }
+}
+
+function getAccounts() {
+  const sheet = getOrCreateAccountsSheet();
+  const data = sheet.getDataRange().getValues();
+  
+  if (data.length <= 1) {
+    return { accounts: [], convenios: [] }; // Solo headers o vacío
+  }
+  
+  const headers = data[0];
+  const rows = data.slice(1);
+  
+  const accounts = [];
+  const convenios = [];
+  
+  rows.forEach((row, index) => {
+    const tipo = row[0];
+    const valor = row[1];
+    const etiqueta = row[2];
+    const activo = row[3];
+    
+    if (activo === false || activo === 'FALSE' || activo === 'false') {
+      return; // Skip inactive
+    }
+    
+    const item = {
+      id: `sheet-${tipo}-${index}`,
+      value: String(valor),
+      label: String(etiqueta || `${tipo} ${valor}`),
+      type: tipo.toUpperCase()
+    };
+    
+    if (tipo.toUpperCase() === 'ACCOUNT') {
+      accounts.push(item);
+    } else if (tipo.toUpperCase() === 'CONVENIO') {
+      convenios.push(item);
+    }
+  });
+  
+  return { accounts, convenios };
+}
+
+function saveAccounts(accountsData) {
+  const sheet = getOrCreateAccountsSheet();
+  
+  // Limpiar datos existentes (excepto headers)
+  if (sheet.getLastRow() > 1) {
+    sheet.deleteRows(2, sheet.getLastRow() - 1);
+  }
+  
+  let saved = 0;
+  
+  // Guardar cuentas
+  if (accountsData.accounts) {
+    accountsData.accounts.forEach(account => {
+      const row = [
+        'ACCOUNT',
+        account.value,
+        account.label,
+        true,
+        new Date()
+      ];
+      sheet.appendRow(row);
+      saved++;
+    });
+  }
+  
+  // Guardar convenios
+  if (accountsData.convenios) {
+    accountsData.convenios.forEach(convenio => {
+      const row = [
+        'CONVENIO',
+        convenio.value,
+        convenio.label,
+        true,
+        new Date()
+      ];
+      sheet.appendRow(row);
+      saved++;
+    });
+  }
+  
+  return { saved };
 }
 

@@ -200,3 +200,105 @@ export const fetchHistoryFromSheets = async (
     throw error;
   }
 };
+
+// ===========================================
+// GESTIÓN DE CUENTAS Y CONVENIOS
+// ===========================================
+
+export interface AccountsConfig {
+  accounts: any[];
+  convenios: any[];
+}
+
+export const fetchAccountsFromSheets = async (
+  scriptUrl: string
+): Promise<AccountsConfig> => {
+  if (!scriptUrl) return { accounts: [], convenios: [] };
+
+  try {
+    const params = new URLSearchParams();
+    params.append('action', 'accounts');
+    
+    const fetchUrl = `${scriptUrl}?${params.toString()}`;
+
+    const response = await fetch(fetchUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      credentials: 'omit',
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP Error: ${response.status}`);
+    }
+
+    const text = await response.text();
+    let result;
+    try {
+      result = JSON.parse(text);
+    } catch (e) {
+      console.error("Invalid JSON response from Sheet:", text);
+      throw new Error("La respuesta del servidor no es JSON válido.");
+    }
+
+    if (result.status === 'success' && result.data) {
+      return {
+        accounts: result.data.accounts || [],
+        convenios: result.data.convenios || []
+      };
+    }
+    return { accounts: [], convenios: [] };
+  } catch (error) {
+    console.error("Error fetching accounts:", error);
+    throw error;
+  }
+};
+
+export const saveAccountsToSheets = async (
+  accounts: any[],
+  convenios: any[],
+  scriptUrl: string
+): Promise<{ success: boolean; message: string }> => {
+  if (!scriptUrl) {
+    return { success: false, message: "URL del Script no configurada" };
+  }
+
+  try {
+    const payload = {
+      action: 'saveAccounts',
+      accounts: {
+        accounts: accounts,
+        convenios: convenios
+      }
+    };
+
+    const response = await fetch(scriptUrl, {
+      method: "POST",
+      redirect: 'follow',
+      credentials: 'omit',
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP Error: ${response.status}`);
+    }
+
+    const text = await response.text();
+    try {
+      const json = JSON.parse(text);
+      if (json.status === 'success') {
+        return { success: true, message: json.message || "Configuración sincronizada correctamente." };
+      } else if (json.status === 'error') {
+        return { success: false, message: `Error del Script: ${json.message}` };
+      }
+    } catch (e) {
+      console.warn("Response was not JSON:", text);
+    }
+
+    return { success: true, message: "Configuración guardada correctamente." };
+
+  } catch (error) {
+    console.error("Error saving accounts:", error);
+    return { success: false, message: "Error de conexión. Verifica la URL del script." };
+  }
+};
