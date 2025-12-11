@@ -386,7 +386,7 @@ const App: React.FC = () => {
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            Historial Google Sheets {isLoadingHistory && '(Cargando...)'}
+            Historial Base de Datos {isLoadingHistory && '(Cargando...)'}
           </button>
         </div>
 
