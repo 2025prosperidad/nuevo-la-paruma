@@ -47,10 +47,13 @@ export const sendToGoogleSheets = async (
         titularCuentaDestino: 'Distribuidora La Paruma SAS',
         ciudad: '', // Optional
         
+        // NUEVO: Enviar imagen en base64 para que el App Script la guarde en Drive
+        imageBase64: r.imageUrl || '',
+        
         // Extra fields for context if the script supports them (legacy support)
         fechaProcesamiento: new Date().toLocaleString('es-CO'),
         motivoRechazo: r.statusMessage !== 'OK' ? r.statusMessage : '',
-        archivo: r.imageUrl.startsWith('data:') ? 'Imagen Base64 (No guardada)' : 'Imagen',
+        archivo: 'Imagen guardada en Drive',
         cuentaOrigen: '', 
         nombreConsignante: '', 
         descripcion: r.rawText ? r.rawText.substring(0, 100) + '...' : '',
@@ -167,9 +170,12 @@ export const fetchHistoryFromSheets = async (
         // 6. Status
         const statusRaw = row['Estado'] || row['estado'] || 'Aceptada'; // Default to Accepted if column missing
 
+        // 7. Image URL from Drive
+        const imageUrl = row['URL Imagen'] || row['urlImagen'] || '';
+
         return {
           id: `sheet-${index}-${Date.now()}`,
-          imageUrl: '', // Can't retrieve image easily
+          imageUrl: imageUrl, // URL de Google Drive
           status: mapSheetToStatus(statusRaw),
           statusMessage: row['Motivo Rechazo'] || row['motivoRechazo'] || statusRaw,
           createdAt: 0,

@@ -9,6 +9,31 @@ interface ConsignmentTableProps {
 
 export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onDelete, onViewImage }) => {
   
+  // Helper: Convert Google Drive URL to viewable format
+  const getViewableImageUrl = (url: string): string => {
+    if (!url) return '';
+    
+    // If it's already base64, return as is
+    if (url.startsWith('data:image')) {
+      return url;
+    }
+    
+    // If it's a Google Drive URL, convert to direct view format
+    if (url.includes('drive.google.com')) {
+      // Extract file ID from various Drive URL formats
+      const fileIdMatch = url.match(/\/file\/d\/([^\/]+)/);
+      const idMatch = url.match(/id=([^&]+)/);
+      const fileId = fileIdMatch ? fileIdMatch[1] : (idMatch ? idMatch[1] : null);
+      
+      if (fileId) {
+        // Use Google Drive thumbnail API for preview
+        return `https://drive.google.com/thumbnail?id=${fileId}&sz=w400`;
+      }
+    }
+    
+    return url;
+  };
+  
   const getStatusBadge = (status: ValidationStatus, message: string) => {
     switch (status) {
       case ValidationStatus.VALID:
@@ -52,12 +77,27 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
             {records.map((record) => (
               <tr key={record.id} className={`hover:bg-gray-50 ${record.status !== ValidationStatus.VALID ? 'bg-red-50/40' : ''}`}>
                 <td className="px-4 py-3">
-                  <div 
-                    className="h-12 w-12 rounded overflow-hidden border border-gray-200 bg-gray-100 cursor-zoom-in relative group"
-                    onClick={() => onViewImage(record.imageUrl)}
-                  >
-                    <img className="h-full w-full object-cover" src={record.imageUrl} alt="Recibo" />
-                  </div>
+                  {record.imageUrl ? (
+                    <div 
+                      className="h-12 w-12 rounded overflow-hidden border border-gray-200 bg-gray-100 cursor-zoom-in relative group"
+                      onClick={() => onViewImage(record.imageUrl)}
+                      title="Click para ver imagen completa"
+                    >
+                      <img 
+                        className="h-full w-full object-cover" 
+                        src={getViewableImageUrl(record.imageUrl)} 
+                        alt="Recibo"
+                        onError={(e) => {
+                          // Si falla la carga de miniatura, intentar con URL original
+                          (e.target as HTMLImageElement).src = record.imageUrl;
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-12 w-12 rounded border border-gray-300 bg-gray-50 flex items-center justify-center">
+                      <span className="text-xs text-gray-400">Sin img</span>
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <div className="font-medium text-gray-900">{record.date || 'N/A'}</div>
