@@ -258,103 +258,104 @@ const App: React.FC = () => {
     }
     
     // B. EXACT AMOUNT + DATE + TIME CHECK (For receipts with timestamp)
-    // Si tienen mismo monto EXACTO, fecha y hora -> Es duplicado
-    const exactTimeDuplicate = allRecords.find(r => {
-      const exactAmount = r.amount === data.amount; // Monto EXACTO (sin tolerancia)
-      const sameDate = r.date === data.date;
-      const sameTime = r.time && data.time && r.time.substring(0, 5) === data.time.substring(0, 5);
-      
-      // Monto exacto + fecha + hora = duplicado
-      if (exactAmount && sameDate && sameTime) return true;
-      
-      return false;
-    });
+    // SOLO aplicar si NO hay números únicos disponibles
+    // Si el recibo tiene RRN/RECIBO/APRO/etc., esos son suficientes para identificarlo
+    const hasUniqueIds = Boolean(
+      data.rrn || data.recibo || data.apro || data.operacion || data.comprobante || data.uniqueTransactionId
+    );
+    
+    if (!hasUniqueIds) {
+      // Solo validar por heurística si no tiene números únicos
+      const exactTimeDuplicate = allRecords.find(r => {
+        const exactAmount = r.amount === data.amount;
+        const sameDate = r.date === data.date;
+        const sameTime = r.time && data.time && r.time.substring(0, 5) === data.time.substring(0, 5);
+        
+        if (exactAmount && sameDate && sameTime) return true;
+        
+        return false;
+      });
 
-    if (exactTimeDuplicate) {
-      return { 
-        status: ValidationStatus.DUPLICATE, 
-        message: `Duplicado: Monto exacto ($${data.amount}), fecha (${data.date}) y hora (${data.time})` 
-      };
+      if (exactTimeDuplicate) {
+        return { 
+          status: ValidationStatus.DUPLICATE, 
+          message: `Duplicado: Monto exacto ($${data.amount}), fecha (${data.date}) y hora (${data.time})` 
+        };
+      }
     }
 
-    // C. EXACT AMOUNT + DATE + BANK + CLIENT REFERENCE CHECK
-    // Para recibos sin hora pero con referencia de cliente
-    const exactRefDuplicate = allRecords.find(r => {
-      const exactAmount = r.amount === data.amount;
-      const sameDate = r.date === data.date;
-      const sameBank = r.bankName && data.bankName && 
-        normalizeAccount(r.bankName) === normalizeAccount(data.bankName);
-      
-      // Normalizar referencias de cliente para comparación
-      const ref1 = r.paymentReference ? normalizeAccount(r.paymentReference) : '';
-      const ref2 = data.paymentReference ? normalizeAccount(data.paymentReference) : '';
-      const sameClientRef = ref1.length > 3 && ref2.length > 3 && ref1 === ref2;
+    // C, D, E: VALIDACIONES HEURÍSTICAS
+    // SOLO aplicar si NO hay números únicos disponibles
+    // Si tiene RRN/RECIBO/APRO/OPERACION/COMPROBANTE, esos identificadores son definitivos
+    
+    if (!hasUniqueIds) {
+      // C. EXACT AMOUNT + DATE + BANK + CLIENT REFERENCE CHECK
+      const exactRefDuplicate = allRecords.find(r => {
+        const exactAmount = r.amount === data.amount;
+        const sameDate = r.date === data.date;
+        const sameBank = r.bankName && data.bankName && 
+          normalizeAccount(r.bankName) === normalizeAccount(data.bankName);
+        
+        const ref1 = r.paymentReference ? normalizeAccount(r.paymentReference) : '';
+        const ref2 = data.paymentReference ? normalizeAccount(data.paymentReference) : '';
+        const sameClientRef = ref1.length > 3 && ref2.length > 3 && ref1 === ref2;
 
-      // Monto exacto + fecha + banco + referencia cliente = duplicado
-      if (exactAmount && sameDate && sameBank && sameClientRef) return true;
+        if (exactAmount && sameDate && sameBank && sameClientRef) return true;
+        return false;
+      });
 
-      return false;
-    });
+      if (exactRefDuplicate) {
+        return { 
+          status: ValidationStatus.DUPLICATE, 
+          message: `Duplicado: Monto exacto ($${data.amount}), fecha, banco y referencia de cliente` 
+        };
+      }
 
-    if (exactRefDuplicate) {
-      return { 
-        status: ValidationStatus.DUPLICATE, 
-        message: `Duplicado: Monto exacto ($${data.amount}), fecha, banco y referencia de cliente` 
-      };
-    }
+      // D. EXACT AMOUNT + DATE + ACCOUNT/CONVENIO + CLIENT REFERENCE
+      const exactAccountDuplicate = allRecords.find(r => {
+        const exactAmount = r.amount === data.amount;
+        const sameDate = r.date === data.date;
+        
+        const acc1 = normalizeAccount(r.accountOrConvenio || '');
+        const acc2 = normalizeAccount(data.accountOrConvenio || '');
+        const sameAccount = acc1.length > 3 && acc2.length > 3 && acc1 === acc2;
 
-    // D. EXACT AMOUNT + DATE + ACCOUNT/CONVENIO + CLIENT REFERENCE
-    // Nota: El convenio solo NO es suficiente (muchos clientes pagan al mismo convenio)
-    // Pero monto exacto + fecha + convenio + referencia cliente = duplicado
-    const exactAccountDuplicate = allRecords.find(r => {
-      const exactAmount = r.amount === data.amount;
-      const sameDate = r.date === data.date;
-      
-      // Normalizar cuentas destino
-      const acc1 = normalizeAccount(r.accountOrConvenio || '');
-      const acc2 = normalizeAccount(data.accountOrConvenio || '');
-      const sameAccount = acc1.length > 3 && acc2.length > 3 && acc1 === acc2;
+        const ref1 = r.paymentReference ? normalizeAccount(r.paymentReference) : '';
+        const ref2 = data.paymentReference ? normalizeAccount(data.paymentReference) : '';
+        const sameClientRef = ref1.length > 3 && ref2.length > 3 && ref1 === ref2;
 
-      // Normalizar referencias de cliente
-      const ref1 = r.paymentReference ? normalizeAccount(r.paymentReference) : '';
-      const ref2 = data.paymentReference ? normalizeAccount(data.paymentReference) : '';
-      const sameClientRef = ref1.length > 3 && ref2.length > 3 && ref1 === ref2;
+        if (exactAmount && sameDate && sameAccount && sameClientRef) return true;
+        return false;
+      });
 
-      // Monto exacto + fecha + cuenta + referencia cliente = duplicado
-      if (exactAmount && sameDate && sameAccount && sameClientRef) return true;
+      if (exactAccountDuplicate) {
+        return { 
+          status: ValidationStatus.DUPLICATE, 
+          message: `Duplicado: Monto exacto ($${data.amount}), fecha, cuenta/convenio y cliente` 
+        };
+      }
 
-      return false;
-    });
+      // E. FALLBACK: EXACT AMOUNT + DATE (solo para montos grandes sin otros identificadores)
+      if (data.amount >= 100000) {
+        const hasNoTime = !data.time || data.time === '';
+        const hasNoRef = !data.paymentReference || data.paymentReference === '';
+        
+        if (hasNoTime && hasNoRef) {
+          const suspiciousDuplicate = allRecords.find(r => {
+            const exactAmount = r.amount === data.amount;
+            const sameDate = r.date === data.date;
+            const sameBank = r.bankName && data.bankName && 
+              normalizeAccount(r.bankName) === normalizeAccount(data.bankName);
+            
+            return exactAmount && sameDate && sameBank;
+          });
 
-    if (exactAccountDuplicate) {
-      return { 
-        status: ValidationStatus.DUPLICATE, 
-        message: `Duplicado: Monto exacto ($${data.amount}), fecha, cuenta/convenio y cliente` 
-      };
-    }
-
-    // E. FALLBACK: EXACT AMOUNT + DATE without other identifiers
-    // Solo si el monto es > 100,000 (montos grandes son más únicos)
-    // Y no hay hora ni referencia para verificar
-    if (data.amount >= 100000) {
-      const hasNoTime = !data.time || data.time === '';
-      const hasNoRef = !data.paymentReference || data.paymentReference === '';
-      
-      if (hasNoTime && hasNoRef) {
-        const suspiciousDuplicate = allRecords.find(r => {
-          const exactAmount = r.amount === data.amount;
-          const sameDate = r.date === data.date;
-          const sameBank = r.bankName && data.bankName && 
-            normalizeAccount(r.bankName) === normalizeAccount(data.bankName);
-          
-          return exactAmount && sameDate && sameBank;
-        });
-
-        if (suspiciousDuplicate) {
-          return { 
-            status: ValidationStatus.DUPLICATE, 
-            message: `Posible duplicado: Monto alto ($${data.amount}) y fecha coinciden. Verifique manualmente.` 
-          };
+          if (suspiciousDuplicate) {
+            return { 
+              status: ValidationStatus.DUPLICATE, 
+              message: `Posible duplicado: Monto alto ($${data.amount}) y fecha coinciden. Verifique manualmente.` 
+            };
+          }
         }
       }
     }
@@ -600,12 +601,12 @@ const App: React.FC = () => {
             <div className="bg-indigo-50 p-4 rounded-xl text-sm text-indigo-800">
               <p className="font-bold mb-2">Validación Exhaustiva:</p>
               <ul className="list-disc pl-4 space-y-1 text-xs">
-                <li><strong>⛔ Número de Aprobación:</strong> Debe ser ÚNICO. No se permiten duplicados.</li>
-                <li><strong>📸 Imagen:</strong> Detecta si la misma foto se sube dos veces.</li>
+                <li><strong>⛔ Números Únicos:</strong> RRN, RECIBO, APRO, OPERACION deben ser ÚNICOS. Si alguno se repite = DUPLICADO.</li>
+                <li><strong>📸 Imagen:</strong> Detecta si la misma foto se sube dos veces (hash).</li>
+                <li><strong>✅ Montos/Fechas:</strong> Pueden repetirse si los números de aprobación son diferentes.</li>
+                <li><strong>✅ Convenios:</strong> Pueden repetirse (múltiples clientes al mismo convenio).</li>
                 <li><strong>Calidad:</strong> Mínimo 3 de 5 estrellas (60/100).</li>
-                <li><strong>Recibos Físicos:</strong> Validados por RRN/Recibo único.</li>
-                <li><strong>Capturas Nequi:</strong> Validados por Fecha + Hora + Valor exacto.</li>
-                <li><strong>Convenios:</strong> Los convenios pueden repetirse, pero NO los recibos.</li>
+                <li><strong>Prioridad:</strong> Los números únicos son definitivos. Heurísticas solo si no hay números.</li>
               </ul>
             </div>
           </div>
