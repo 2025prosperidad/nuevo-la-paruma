@@ -29,6 +29,7 @@ export interface ExtractedData {
 export interface ConsignmentRecord extends ExtractedData {
   id: string;
   imageUrl: string;
+  imageHash?: string; // SHA-256 hash to detect exact duplicate images
   status: ValidationStatus;
   statusMessage: string;
   createdAt: number;

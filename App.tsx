@@ -108,6 +108,15 @@ const App: React.FC = () => {
     }
   };
 
+  // Helper: Generate simple hash from image data (to detect exact duplicate images)
+  const generateImageHash = async (base64Data: string): Promise<string> => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(base64Data.substring(0, 5000)); // Use first 5000 chars for hash
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+
   // Persist Config changes
   useEffect(() => {
     if (allowedAccounts.length > 0) localStorage.setItem('config_accounts', JSON.stringify(allowedAccounts));
@@ -141,7 +150,7 @@ const App: React.FC = () => {
   };
 
   const validateRecord = (
-    data: ExtractedData,
+    data: ExtractedData & { imageHash?: string },
     existingRecords: ConsignmentRecord[],
     currentAccounts: ConfigItem[],
     currentConvenios: ConfigItem[]
@@ -155,50 +164,145 @@ const App: React.FC = () => {
       };
     }
 
-    // 2. DUPLICATE CHECKING (ULTRA STRICT)
+    // 2. DUPLICATE CHECKING (EXHAUSTIVE - NO DUPLICATES ALLOWED)
     const allRecords = [...existingRecords, ...sheetRecords];
 
-    // A. Strict Transaction ID Match (Most reliable)
-    if (data.uniqueTransactionId && data.uniqueTransactionId.length > 3) {
-      const idDuplicate = allRecords.find(r =>
-        r.uniqueTransactionId &&
-        r.uniqueTransactionId.replace(/\D/g, '') === data.uniqueTransactionId?.replace(/\D/g, '')
+    // A-0. IMAGE HASH CHECK (Detect exact same image file)
+    // Si es exactamente la misma imagen -> duplicado inmediato
+    if (data.imageHash) {
+      const sameImageDuplicate = allRecords.find(r => 
+        r.imageHash && r.imageHash === data.imageHash
       );
-
-      if (idDuplicate) {
-        return { status: ValidationStatus.DUPLICATE, message: `ID Transacción duplicado: ${data.uniqueTransactionId}` };
+      
+      if (sameImageDuplicate) {
+        return {
+          status: ValidationStatus.DUPLICATE,
+          message: 'Imagen duplicada: Esta misma foto ya fue subida anteriormente'
+        };
       }
     }
 
-    // B. Heuristic Match (If no ID available or ID is short/unreliable)
-    // "Ultra-strict": If Amount AND Date AND Client Ref match -> Duplicate
-    const heuristicDuplicate = allRecords.find(r => {
-      const sameAmount = Math.abs(r.amount - data.amount) < 50; // Strict tolerance
+    // A. TRANSACTION ID CHECK (Most reliable - ANY length)
+    // Si existe un ID de transacción, debe ser único (sin importar longitud)
+    if (data.uniqueTransactionId && data.uniqueTransactionId.trim().length > 0) {
+      const normalizedNewId = data.uniqueTransactionId.replace(/\D/g, '').trim();
+      
+      if (normalizedNewId.length > 0) {
+        const idDuplicate = allRecords.find(r => {
+          if (!r.uniqueTransactionId) return false;
+          const normalizedExistingId = r.uniqueTransactionId.replace(/\D/g, '').trim();
+          return normalizedExistingId === normalizedNewId;
+        });
+        
+        if (idDuplicate) {
+          return { 
+            status: ValidationStatus.DUPLICATE, 
+            message: `ID Transacción duplicado: ${data.uniqueTransactionId}` 
+          };
+        }
+      }
+    }
+    
+    // B. EXACT AMOUNT + DATE + TIME CHECK (For receipts with timestamp)
+    // Si tienen mismo monto EXACTO, fecha y hora -> Es duplicado
+    const exactTimeDuplicate = allRecords.find(r => {
+      const exactAmount = r.amount === data.amount; // Monto EXACTO (sin tolerancia)
       const sameDate = r.date === data.date;
+      const sameTime = r.time && data.time && r.time.substring(0, 5) === data.time.substring(0, 5);
+      
+      // Monto exacto + fecha + hora = duplicado
+      if (exactAmount && sameDate && sameTime) return true;
+      
+      return false;
+    });
 
-      // Strict Time check: Only compare if BOTH have time. If exact string match, it's suspicious.
-      const sameTime = (r.time && data.time)
-        ? r.time === data.time
-        : true; // If one is missing time, we can't rule out duplicate based on time
+    if (exactTimeDuplicate) {
+      return { 
+        status: ValidationStatus.DUPLICATE, 
+        message: `Duplicado: Monto exacto ($${data.amount}), fecha (${data.date}) y hora (${data.time})` 
+      };
+    }
 
-      // Client Reference check (e.g. Cedula)
-      const sameRef = (r.paymentReference && data.paymentReference)
-        ? normalizeAccount(r.paymentReference) === normalizeAccount(data.paymentReference)
-        : false;
+    // C. EXACT AMOUNT + DATE + BANK + CLIENT REFERENCE CHECK
+    // Para recibos sin hora pero con referencia de cliente
+    const exactRefDuplicate = allRecords.find(r => {
+      const exactAmount = r.amount === data.amount;
+      const sameDate = r.date === data.date;
+      const sameBank = r.bankName && data.bankName && 
+        normalizeAccount(r.bankName) === normalizeAccount(data.bankName);
+      
+      // Normalizar referencias de cliente para comparación
+      const ref1 = r.paymentReference ? normalizeAccount(r.paymentReference) : '';
+      const ref2 = data.paymentReference ? normalizeAccount(data.paymentReference) : '';
+      const sameClientRef = ref1.length > 3 && ref2.length > 3 && ref1 === ref2;
 
-      // RULE 1: If Amount + Date + Client Ref match => Duplicate
-      // (A client rarely pays exact same amount on same day without a unique ID)
-      if (sameAmount && sameDate && sameRef) return true;
-
-      // RULE 2: If Amount + Date + Time match (and time is present) => Duplicate
-      // (Exact same minute is very suspicious for Nequi screenshots)
-      if (sameAmount && sameDate && sameTime && r.time && data.time) return true;
+      // Monto exacto + fecha + banco + referencia cliente = duplicado
+      if (exactAmount && sameDate && sameBank && sameClientRef) return true;
 
       return false;
     });
 
-    if (heuristicDuplicate) {
-      return { status: ValidationStatus.DUPLICATE, message: 'Duplicado detectado (Fecha, Valor y Referencia/Hora coinciden)' };
+    if (exactRefDuplicate) {
+      return { 
+        status: ValidationStatus.DUPLICATE, 
+        message: `Duplicado: Monto exacto ($${data.amount}), fecha, banco y referencia de cliente` 
+      };
+    }
+
+    // D. EXACT AMOUNT + DATE + ACCOUNT/CONVENIO + CLIENT REFERENCE
+    // Nota: El convenio solo NO es suficiente (muchos clientes pagan al mismo convenio)
+    // Pero monto exacto + fecha + convenio + referencia cliente = duplicado
+    const exactAccountDuplicate = allRecords.find(r => {
+      const exactAmount = r.amount === data.amount;
+      const sameDate = r.date === data.date;
+      
+      // Normalizar cuentas destino
+      const acc1 = normalizeAccount(r.accountOrConvenio || '');
+      const acc2 = normalizeAccount(data.accountOrConvenio || '');
+      const sameAccount = acc1.length > 3 && acc2.length > 3 && acc1 === acc2;
+
+      // Normalizar referencias de cliente
+      const ref1 = r.paymentReference ? normalizeAccount(r.paymentReference) : '';
+      const ref2 = data.paymentReference ? normalizeAccount(data.paymentReference) : '';
+      const sameClientRef = ref1.length > 3 && ref2.length > 3 && ref1 === ref2;
+
+      // Monto exacto + fecha + cuenta + referencia cliente = duplicado
+      if (exactAmount && sameDate && sameAccount && sameClientRef) return true;
+
+      return false;
+    });
+
+    if (exactAccountDuplicate) {
+      return { 
+        status: ValidationStatus.DUPLICATE, 
+        message: `Duplicado: Monto exacto ($${data.amount}), fecha, cuenta/convenio y cliente` 
+      };
+    }
+
+    // E. FALLBACK: EXACT AMOUNT + DATE without other identifiers
+    // Solo si el monto es > 100,000 (montos grandes son más únicos)
+    // Y no hay hora ni referencia para verificar
+    if (data.amount >= 100000) {
+      const hasNoTime = !data.time || data.time === '';
+      const hasNoRef = !data.paymentReference || data.paymentReference === '';
+      
+      if (hasNoTime && hasNoRef) {
+        const suspiciousDuplicate = allRecords.find(r => {
+          const exactAmount = r.amount === data.amount;
+          const sameDate = r.date === data.date;
+          const sameBank = r.bankName && data.bankName && 
+            normalizeAccount(r.bankName) === normalizeAccount(data.bankName);
+          
+          return exactAmount && sameDate && sameBank;
+        });
+
+        if (suspiciousDuplicate) {
+          return { 
+            status: ValidationStatus.DUPLICATE, 
+            message: `Posible duplicado: Monto alto ($${data.amount}) y fecha coinciden. Verifique manualmente.` 
+          };
+        }
+      }
     }
 
     // 3. ACCOUNT/CONVENIO CHECK
@@ -249,12 +353,17 @@ const App: React.FC = () => {
           reader.onloadend = async () => {
             const base64String = reader.result as string;
             const base64Data = base64String.split(',')[1];
+            
+            // Generate hash from image data to detect exact duplicate images
+            const imageHash = await generateImageHash(base64Data);
+            
             try {
               const extractedData = await analyzeConsignmentImage(base64Data);
               resolve({
                 ...extractedData,
                 id: crypto.randomUUID(),
                 imageUrl: base64String,
+                imageHash: imageHash,
                 createdAt: Date.now()
               });
             } catch (err) {
@@ -262,6 +371,7 @@ const App: React.FC = () => {
               resolve({
                 id: crypto.randomUUID(),
                 imageUrl: base64String,
+                imageHash: imageHash,
                 status: ValidationStatus.UNKNOWN_ERROR,
                 statusMessage: "Error lectura IA",
                 createdAt: Date.now(),
@@ -300,12 +410,20 @@ const App: React.FC = () => {
           newRecords.push(raw as ConsignmentRecord);
           continue;
         }
-        const validation = validateRecord(raw as ExtractedData, currentBatchHistory, allowedAccounts, allowedConvenios);
+        
+        // Pass raw data with imageHash to validation
+        const validation = validateRecord(
+          raw as (ExtractedData & { imageHash?: string }), 
+          currentBatchHistory, 
+          allowedAccounts, 
+          allowedConvenios
+        );
 
         const finalRecord: ConsignmentRecord = {
           ...(raw as ExtractedData),
           id: raw.id!,
           imageUrl: raw.imageUrl!,
+          imageHash: raw.imageHash, // Include image hash
           createdAt: raw.createdAt!,
           status: validation.status,
           statusMessage: validation.message
