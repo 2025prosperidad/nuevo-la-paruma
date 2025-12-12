@@ -1,9 +1,9 @@
 
 export const COMPANY_NAME = "Distribuidora La Paruma SAS";
 
-// Reemplaza esto con la URL de tu Web App de Google Apps Script
-// Si lo dejas vacío, la app te lo pedirá la primera vez que intentes sincronizar
-export const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby0vY9L27k4TSvZd5wtuT6J5ZbHZl0WT8p5xvWgHjwNZPXE6zWtKKbcS8_8Sn8i-JtJ/exec"; 
+// URL del Web App de Google Apps Script (actualizada 11/12/2025)
+// Esta URL conecta con la base de datos para leer/guardar consignaciones y configuración
+export const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbztmBbxC5Ljnh3eF1GjM0pcFVAE0ft7gBGDCwyEKarzuj-dAA9v1H0Y75myXk-hKWfU/exec"; 
 
 // Normalize strings: remove spaces, dashes, and leading zeros for accurate comparison
 export const normalizeAccount = (acc: string) => {
