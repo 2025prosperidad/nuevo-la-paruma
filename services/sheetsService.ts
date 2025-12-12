@@ -170,7 +170,9 @@ export const fetchHistoryFromSheets = async (
 
         // 4. Time
         const timeRaw = row['Hora'] || row['hora'] || '';
-        const time = timeRaw.includes('T') ? timeRaw.split('T')[1].substring(0, 5) : String(timeRaw).substring(0, 5);
+        const time = timeRaw && String(timeRaw).includes('T') 
+          ? String(timeRaw).split('T')[1].substring(0, 5) 
+          : (timeRaw ? String(timeRaw).substring(0, 5) : '');
 
         // 5. Amount
         const val = row['Valor'] || row['valor'] || 0;

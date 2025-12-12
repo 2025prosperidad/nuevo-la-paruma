@@ -5,7 +5,8 @@
 
 // CONFIGURACIÓN - ACTUALIZA ESTOS IDs
 const SPREADSHEET_ID = 'TU_ID_DE_GOOGLE_SHEET_AQUI'; // O usa getActiveSpreadsheet()
-const DRIVE_FOLDER_ID = 'TU_ID_DE_CARPETA_DRIVE_AQUI'; // ID de carpeta en Drive para guardar imágenes
+const DRIVE_FOLDER_ID = ''; // ID de carpeta en Drive (OPCIONAL: dejar vacío para desactivar guardado de imágenes)
+const ENABLE_DRIVE_IMAGES = false; // Cambiar a true cuando tengas configurado DRIVE_FOLDER_ID y permisos
 
 // Nombres de hojas
 const CONSIGNACIONES_SHEET = 'Hoja 1'; // Tu hoja actual de consignaciones
@@ -231,18 +232,21 @@ function doPost(e) {
           throw new Error('El campo "banco" es obligatorio');
         }
         
-        // NUEVO: Procesar imagen si existe
+        // NUEVO: Procesar imagen si existe (solo si está habilitado)
         let imageUrl = '';
-        if (r.imageBase64 && r.imageBase64.length > 100) {
+        if (ENABLE_DRIVE_IMAGES && r.imageBase64 && r.imageBase64.length > 100) {
           try {
             imageUrl = saveImageToDrive(
               r.imageBase64, 
               r.numeroReferencia || `recibo_${Date.now()}_${index}`
             );
+            Logger.log('Imagen guardada exitosamente: ' + imageUrl.substring(0, 50));
           } catch (imgError) {
-            Logger.log('Error guardando imagen: ' + imgError.toString());
-            imageUrl = 'Error al guardar imagen';
+            Logger.log('Error guardando imagen (Drive deshabilitado o sin permisos): ' + imgError.toString().substring(0, 100));
+            imageUrl = ''; // Dejar vacío si falla
           }
+        } else if (!ENABLE_DRIVE_IMAGES && r.imageBase64) {
+          Logger.log('Guardado de imágenes deshabilitado. Activa ENABLE_DRIVE_IMAGES para habilitar.');
         }
         
         const now = new Date();
@@ -314,6 +318,11 @@ function doPost(e) {
 // ===========================================
 function saveImageToDrive(base64Data, fileName) {
   try {
+    // Validar que DRIVE_FOLDER_ID esté configurado
+    if (!DRIVE_FOLDER_ID || DRIVE_FOLDER_ID === '' || DRIVE_FOLDER_ID === 'TU_ID_DE_CARPETA_DRIVE_AQUI') {
+      throw new Error('DRIVE_FOLDER_ID no está configurado');
+    }
+    
     // Limpiar el base64 (quitar el prefijo data:image/...)
     let cleanBase64 = base64Data;
     if (base64Data.includes(',')) {
@@ -341,7 +350,7 @@ function saveImageToDrive(base64Data, fileName) {
     
   } catch (error) {
     Logger.log('Error guardando imagen: ' + error.toString());
-    return `Error: ${error.toString()}`;
+    throw error; // Re-lanzar para que se maneje arriba
   }
 }
 
