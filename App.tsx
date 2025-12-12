@@ -264,8 +264,9 @@ const App: React.FC = () => {
         ];
         
         return existingIds.some(existingId => {
-          if (!existingId) return false;
-          const rawExisting = existingId.trim();
+          if (!existingId || typeof existingId !== 'string') return false;
+          const rawExisting = String(existingId).trim();
+          if (rawExisting.length === 0) return false;
           // Comparación case-insensitive
           return rawExisting.toLowerCase() === rawNewId.toLowerCase();
         });

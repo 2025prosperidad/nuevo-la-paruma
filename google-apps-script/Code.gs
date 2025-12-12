@@ -204,6 +204,12 @@ function doPost(e) {
         "Ciudad",
         "Motivo Rechazo",
         "URL Imagen",  // NUEVO: columna para URL de Drive
+        "RRN",  // Número único Redeban
+        "RECIBO",  // Número de recibo
+        "APRO",  // Código de aprobación
+        "OPERACION",  // Número de operación (Banco Agrario, Bancolombia)
+        "COMPROBANTE",  // Número de comprobante (Bancolombia App)
+        "Hash Imagen",  // SHA-256 hash para detectar imágenes duplicadas
         "Cuenta Origen",
         "Nombre Consignante",
         "Descripción",
@@ -256,6 +262,12 @@ function doPost(e) {
           r.ciudad || '',
           r.motivoRechazo || '',
           imageUrl,  // NUEVO: URL de la imagen
+          r.rrn || '',  // Número único RRN (Redeban)
+          r.recibo || '',  // Número de recibo
+          r.apro || '',  // Código de aprobación
+          r.operacion || '',  // Número de operación
+          r.comprobante || '',  // Número de comprobante
+          r.imageHash || '',  // Hash SHA-256 de la imagen
           r.cuentaOrigen || '',
           r.nombreConsignante || '',
           r.descripcion || '',

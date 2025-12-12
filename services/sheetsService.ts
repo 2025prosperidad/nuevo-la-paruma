@@ -50,6 +50,14 @@ export const sendToGoogleSheets = async (
         // NUEVO: Enviar imagen en base64 para que el App Script la guarde en Drive
         imageBase64: r.imageUrl || '',
         
+        // NUEVOS CAMPOS: Números únicos de transacción
+        rrn: r.rrn || '',
+        recibo: r.recibo || '',
+        apro: r.apro || '',
+        operacion: r.operacion || '',
+        comprobante: r.comprobante || '',
+        imageHash: r.imageHash || '',
+        
         // Extra fields for context if the script supports them (legacy support)
         fechaProcesamiento: new Date().toLocaleString('es-CO'),
         motivoRechazo: r.statusMessage !== 'OK' ? r.statusMessage : '',
@@ -57,7 +65,7 @@ export const sendToGoogleSheets = async (
         cuentaOrigen: '', 
         nombreConsignante: '', 
         descripcion: r.rawText ? r.rawText.substring(0, 100) + '...' : '',
-        numeroOperacion: r.uniqueTransactionId || '',
+        numeroOperacion: r.operacion || r.uniqueTransactionId || '',
         convenio: isConvenio ? r.accountOrConvenio : '',
         sucursal: '',
         cajero: ''
@@ -184,9 +192,19 @@ export const fetchHistoryFromSheets = async (
           amount: Number(val) || 0,
           date: date,
           time: time,
-          uniqueTransactionId: String(id),
-          paymentReference: String(ref),
-          accountOrConvenio: String(acc),
+          uniqueTransactionId: String(id || ''),
+          paymentReference: String(ref || ''),
+          accountOrConvenio: String(acc || ''),
+          
+          // NUEVOS CAMPOS: Números únicos de transacción
+          rrn: String(row['RRN'] || row['rrn'] || ''),
+          recibo: String(row['RECIBO'] || row['recibo'] || ''),
+          apro: String(row['APRO'] || row['apro'] || ''),
+          operacion: String(row['OPERACION'] || row['operacion'] || row['Número Operación'] || ''),
+          comprobante: String(row['COMPROBANTE'] || row['comprobante'] || ''),
+          
+          // Hash de imagen para detección de duplicados
+          imageHash: String(row['Hash Imagen'] || row['imageHash'] || ''),
           
           imageQualityScore: 100,
           isReadable: true,
