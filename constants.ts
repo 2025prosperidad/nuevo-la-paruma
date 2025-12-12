@@ -14,15 +14,19 @@ export const normalizeAccount = (acc: string) => {
 };
 
 export const ALLOWED_ACCOUNTS = [
-  // Bancolombia
-  '24500020949', // Ahorros
-  '24500020950', // Corriente
+  // Bancolombia - Cuentas principales
+  '24500020949',  // Cuenta Ahorros
+  '24500020950',  // Cuenta Corriente
+  '24500081160',  // Cuenta Ahorros (visto en Nequi)
+  '24552844602',  // Cuenta Corriente (visto en Bancolombia App y Nequi)
+  '245528446',    // Variante corta de 24552844602
   // Occidente
-  '001305000001000169513', // CTE
-  '425832797', // Producto No. CTE
-  // Anteriores / Respaldo
-  '24500081160',
-  '24552844602'
+  '001305000001000169513', // Cuenta Corriente
+  '425832797',   // Producto No. Cuenta Corriente
+  // Cuentas adicionales
+  '1234',        // Cuenta temporal/test
+  '1222222',     // Otra cuenta temporal
+  '444444'       // Otra cuenta temporal
 ];
 
 export const ALLOWED_CONVENIOS = [
@@ -30,19 +34,22 @@ export const ALLOWED_CONVENIOS = [
   '1352327',
   '1192509',
   // Bancolombia
-  '56885',
+  '56885',  // RIN CERVECERÍA UNIÓN (más común)
   '73180',
+  '04184',  // DISTRIBUIDORA LA PAR (visto en recibos Redeban)
   // Banco Agrario
-  '18129',
+  '18129',  // CERVECERÍA UNION S.A - RM
   '14311',
   // BBVA
   '3278',
-  '29140'
+  '29140',
+  // Otros recaudos
+  '32137'   // CERVECERÍA UNIÓN T R (visto en recibos Redeban)
 ];
 
 export const COMMON_REFERENCES = [
-  '10813353',
-  '13937684'
+  '10813353',  // Cliente frecuente (visto en Banco Agrario)
+  '13937684'   // Cliente frecuente (visto en múltiples recibos)
 ];
 
 // Changed from 70 to 60 to accept "3 out of 5" quality

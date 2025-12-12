@@ -116,6 +116,13 @@ const App: React.FC = () => {
     try {
       const config = await fetchAccountsFromSheets(url);
       
+      // Si la hoja está vacía, sincronizar valores por defecto
+      if (config.accounts.length === 0 && config.convenios.length === 0) {
+        console.log("Hoja Cuentas vacía. Sincronizando valores por defecto...");
+        await syncAccountsToSheets();
+        return;
+      }
+      
       if (config.accounts.length > 0) {
         setAllowedAccounts(config.accounts);
         localStorage.setItem('config_accounts', JSON.stringify(config.accounts));
@@ -126,7 +133,7 @@ const App: React.FC = () => {
         localStorage.setItem('config_convenios', JSON.stringify(config.convenios));
       }
       
-      console.log("Cuentas y convenios cargados desde Google Sheets");
+      console.log(`Cuentas y convenios cargados desde Google Sheets: ${config.accounts.length} cuentas, ${config.convenios.length} convenios`);
     } catch (err: any) {
       console.error("Failed to load accounts from sheets", err);
     }
