@@ -318,16 +318,22 @@ function doPost(e) {
 // ===========================================
 function saveImageToDrive(base64Data, fileName) {
   try {
+    Logger.log('Iniciando guardado de imagen: ' + fileName);
+    
     // Validar que DRIVE_FOLDER_ID esté configurado
     if (!DRIVE_FOLDER_ID || DRIVE_FOLDER_ID === '' || DRIVE_FOLDER_ID === 'TU_ID_DE_CARPETA_DRIVE_AQUI') {
       throw new Error('DRIVE_FOLDER_ID no está configurado');
     }
+    
+    Logger.log('DRIVE_FOLDER_ID válido: ' + DRIVE_FOLDER_ID);
     
     // Limpiar el base64 (quitar el prefijo data:image/...)
     let cleanBase64 = base64Data;
     if (base64Data.includes(',')) {
       cleanBase64 = base64Data.split(',')[1];
     }
+    
+    Logger.log('Base64 limpiado, tamaño: ' + cleanBase64.length);
     
     // Convertir base64 a blob
     const blob = Utilities.newBlob(
@@ -336,21 +342,70 @@ function saveImageToDrive(base64Data, fileName) {
       `${fileName}_${Date.now()}.jpg`
     );
     
+    Logger.log('Blob creado correctamente');
+    
     // Obtener carpeta de Drive
+    Logger.log('Intentando acceder a carpeta Drive: ' + DRIVE_FOLDER_ID);
     const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+    Logger.log('Carpeta encontrada: ' + folder.getName());
     
     // Guardar archivo
+    Logger.log('Creando archivo en Drive...');
     const file = folder.createFile(blob);
+    Logger.log('Archivo creado: ' + file.getName());
     
-    // Hacer el archivo público (opcional)
+    // Hacer el archivo público
+    Logger.log('Configurando permisos públicos...');
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
     // Retornar URL
-    return file.getUrl();
+    const fileUrl = file.getUrl();
+    Logger.log('URL generada exitosamente: ' + fileUrl);
+    
+    return fileUrl;
     
   } catch (error) {
-    Logger.log('Error guardando imagen: ' + error.toString());
+    Logger.log('❌ ERROR en saveImageToDrive: ' + error.toString());
+    Logger.log('Stack trace: ' + error.stack);
     throw error; // Re-lanzar para que se maneje arriba
+  }
+}
+
+// ===========================================
+// FUNCIÓN DE PRUEBA PARA VERIFICAR DRIVE
+// ===========================================
+function testDriveAccess() {
+  try {
+    Logger.log('=== INICIO TEST DRIVE ===');
+    Logger.log('DRIVE_FOLDER_ID: ' + DRIVE_FOLDER_ID);
+    Logger.log('ENABLE_DRIVE_IMAGES: ' + ENABLE_DRIVE_IMAGES);
+    
+    // Intentar acceder a la carpeta
+    const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+    Logger.log('✅ Carpeta encontrada: ' + folder.getName());
+    Logger.log('✅ URL de la carpeta: ' + folder.getUrl());
+    
+    // Crear archivo de prueba
+    const testBlob = Utilities.newBlob('Test de permisos Drive', 'text/plain', 'test_' + Date.now() + '.txt');
+    const testFile = folder.createFile(testBlob);
+    Logger.log('✅ Archivo de prueba creado: ' + testFile.getName());
+    Logger.log('✅ URL: ' + testFile.getUrl());
+    
+    // Configurar permisos
+    testFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    Logger.log('✅ Permisos públicos configurados');
+    
+    // Eliminar archivo de prueba
+    testFile.setTrashed(true);
+    Logger.log('✅ Archivo de prueba eliminado');
+    
+    Logger.log('=== TEST DRIVE EXITOSO ===');
+    return 'OK - Drive funcionando correctamente';
+    
+  } catch (error) {
+    Logger.log('❌ ERROR en test Drive: ' + error.toString());
+    Logger.log('Stack: ' + error.stack);
+    return 'ERROR: ' + error.toString();
   }
 }
 
