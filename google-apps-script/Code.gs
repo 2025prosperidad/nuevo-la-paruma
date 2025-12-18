@@ -5,8 +5,8 @@
 
 // CONFIGURACIÓN - ACTUALIZA ESTOS IDs
 const SPREADSHEET_ID = 'TU_ID_DE_GOOGLE_SHEET_AQUI'; // O usa getActiveSpreadsheet()
-const DRIVE_FOLDER_ID = ''; // ID de carpeta en Drive (OPCIONAL: dejar vacío para desactivar guardado de imágenes)
-const ENABLE_DRIVE_IMAGES = false; // Cambiar a true cuando tengas configurado DRIVE_FOLDER_ID y permisos
+const DRIVE_FOLDER_ID = '1ktHeHJ8jdTCjIU3mcOIYzRtg5M-rSJhF'; // ID de tu carpeta Drive
+const ENABLE_DRIVE_IMAGES = true; // ✅ ACTIVADO para guardar imágenes
 
 // Nombres de hojas
 const CONSIGNACIONES_SHEET = 'Hoja 1'; // Tu hoja actual de consignaciones
@@ -372,6 +372,47 @@ function saveImageToDrive(base64Data, fileName) {
 }
 
 // ===========================================
+// FUNCIÓN PARA REPARAR LA HOJA CUENTAS
+// ===========================================
+function repairAccountsSheet() {
+  try {
+    Logger.log('=== REPARANDO HOJA CUENTAS ===');
+    
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName(ACCOUNTS_SHEET_NAME);
+    
+    if (!sheet) {
+      Logger.log('⚠️ Hoja Cuentas no existe. Creando...');
+      sheet = ss.insertSheet(ACCOUNTS_SHEET_NAME);
+    }
+    
+    // Limpiar toda la hoja
+    Logger.log('🧹 Limpiando toda la hoja...');
+    sheet.clear();
+    
+    // Crear headers correctos
+    Logger.log('📋 Creando headers...');
+    const headers = ['Tipo', 'Valor', 'Etiqueta', 'Activo', 'Fecha Creación'];
+    sheet.appendRow(headers);
+    
+    const headerRange = sheet.getRange(1, 1, 1, headers.length);
+    headerRange.setFontWeight('bold');
+    headerRange.setBackground('#34a853');
+    headerRange.setFontColor('#ffffff');
+    
+    Logger.log('✅ Hoja reparada correctamente');
+    Logger.log('✅ Headers: ' + headers.join(', '));
+    Logger.log('=== REPARACIÓN COMPLETADA ===');
+    
+    return 'OK - Hoja Cuentas reparada. Ahora puedes guardar configuración desde la app.';
+    
+  } catch (error) {
+    Logger.log('❌ ERROR reparando hoja: ' + error.toString());
+    return 'ERROR: ' + error.toString();
+  }
+}
+
+// ===========================================
 // FUNCIÓN DE PRUEBA PARA VERIFICAR DRIVE
 // ===========================================
 function testDriveAccess() {
@@ -483,9 +524,22 @@ function saveAccounts(accountsData) {
     
     const sheet = getOrCreateAccountsSheet();
     
-    // Limpiar datos existentes (excepto headers)
-    if (sheet.getLastRow() > 1) {
-      sheet.deleteRows(2, sheet.getLastRow() - 1);
+    // IMPORTANTE: Verificar si la fila 1 tiene headers válidos
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 0) {
+      const firstRow = sheet.getRange(1, 1, 1, 5).getValues()[0];
+      const hasValidHeaders = firstRow[0] === 'Tipo' || firstRow[0] === 'TIPO';
+      
+      if (!hasValidHeaders) {
+        // La fila 1 tiene datos, no headers - limpiar TODO
+        Logger.log('⚠️ Fila 1 sin headers válidos. Limpiando toda la hoja...');
+        sheet.clear();
+        ensureAccountsHeaders(sheet);
+      } else if (lastRow > 1) {
+        // Tiene headers válidos, solo limpiar datos (fila 2+)
+        Logger.log('✅ Headers válidos. Limpiando datos desde fila 2...');
+        sheet.deleteRows(2, lastRow - 1);
+      }
     }
     
     let saved = 0;

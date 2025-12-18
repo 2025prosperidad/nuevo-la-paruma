@@ -9,6 +9,7 @@ import { analyzeConsignmentImage } from './services/geminiService';
 import { sendToGoogleSheets, fetchHistoryFromSheets, fetchAccountsFromSheets, saveAccountsToSheets } from './services/sheetsService';
 import { ConsignmentRecord, ProcessingStatus, ValidationStatus, ExtractedData, ConfigItem } from './types';
 import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL } from './constants';
+import { processImageFile } from './utils/imageCompression';
 
 const App: React.FC = () => {
   // Local records (just uploaded/processed in this session)
@@ -454,49 +455,88 @@ const App: React.FC = () => {
 
     try {
       const processFile = async (file: File): Promise<Partial<ConsignmentRecord> | null> => {
-        return new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.readAsDataURL(file);
-          reader.onloadend = async () => {
-            const base64String = reader.result as string;
-            const base64Data = base64String.split(',')[1];
-            
-            // Generate hash from image data to detect exact duplicate images
-            const imageHash = await generateImageHash(base64Data);
-            
-            try {
-              const extractedData = await analyzeConsignmentImage(base64Data);
-              resolve({
-                ...extractedData,
-                id: crypto.randomUUID(),
-                imageUrl: base64String,
-                imageHash: imageHash,
-                createdAt: Date.now()
-              });
-            } catch (err) {
-              console.error(err);
-              resolve({
-                id: crypto.randomUUID(),
-                imageUrl: base64String,
-                imageHash: imageHash,
-                status: ValidationStatus.UNKNOWN_ERROR,
-                statusMessage: "Error lectura IA",
-                createdAt: Date.now(),
-                bankName: 'Error',
-                amount: 0,
-                date: '',
-                time: null,
-                uniqueTransactionId: null,
-                paymentReference: null,
-                accountOrConvenio: '',
-                imageQualityScore: 0,
-                isReadable: false,
-                rawText: ''
-              });
-            }
+        try {
+          // 1. Validar y comprimir imagen
+          const compressionResult = await processImageFile(file);
+          
+          if (!compressionResult.success) {
+            console.error('Error procesando imagen:', compressionResult.error);
+            return {
+              id: crypto.randomUUID(),
+              imageUrl: '',
+              status: ValidationStatus.UNKNOWN_ERROR,
+              statusMessage: compressionResult.error || "Error al procesar imagen",
+              createdAt: Date.now(),
+              bankName: 'Error',
+              amount: 0,
+              date: '',
+              time: null,
+              uniqueTransactionId: null,
+              paymentReference: null,
+              accountOrConvenio: '',
+              imageQualityScore: 0,
+              isReadable: false,
+              rawText: ''
+            };
+          }
+          
+          const base64Data = compressionResult.data!;
+          const base64String = `data:${compressionResult.mimeType};base64,${base64Data}`;
+          
+          // 2. Generar hash de la imagen para detectar duplicados exactos
+          const imageHash = await generateImageHash(base64Data);
+          
+          // 3. Analizar con Gemini
+          try {
+            const extractedData = await analyzeConsignmentImage(base64Data, compressionResult.mimeType);
+            return {
+              ...extractedData,
+              id: crypto.randomUUID(),
+              imageUrl: base64String,
+              imageHash: imageHash,
+              createdAt: Date.now()
+            };
+          } catch (err: any) {
+            console.error('Error en análisis IA:', err);
+            return {
+              id: crypto.randomUUID(),
+              imageUrl: base64String,
+              imageHash: imageHash,
+              status: ValidationStatus.UNKNOWN_ERROR,
+              statusMessage: err?.message || "Error lectura IA",
+              createdAt: Date.now(),
+              bankName: 'Error',
+              amount: 0,
+              date: '',
+              time: null,
+              uniqueTransactionId: null,
+              paymentReference: null,
+              accountOrConvenio: '',
+              imageQualityScore: 0,
+              isReadable: false,
+              rawText: ''
+            };
+          }
+        } catch (error: any) {
+          console.error('Error general procesando archivo:', error);
+          return {
+            id: crypto.randomUUID(),
+            imageUrl: '',
+            status: ValidationStatus.UNKNOWN_ERROR,
+            statusMessage: error?.message || "Error inesperado al procesar imagen",
+            createdAt: Date.now(),
+            bankName: 'Error',
+            amount: 0,
+            date: '',
+            time: null,
+            uniqueTransactionId: null,
+            paymentReference: null,
+            accountOrConvenio: '',
+            imageQualityScore: 0,
+            isReadable: false,
+            rawText: ''
           };
-          reader.onerror = () => resolve(null);
-        });
+        }
       };
 
       const rawResults = await Promise.all(files.map(processFile));

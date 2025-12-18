@@ -55,7 +55,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({ onFileSelect, status }) 
               </span>
               <p className="pl-1">o arrastra y suelta</p>
             </div>
-            <p className="text-xs text-gray-500">PNG, JPG hasta 5MB (Múltiples archivos permitidos)</p>
+            <p className="text-xs text-gray-500">JPG, PNG, WEBP, GIF, HEIC hasta 20MB (Se comprimen automáticamente)</p>
           </>
         )}
         <input

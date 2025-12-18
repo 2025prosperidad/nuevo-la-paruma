@@ -28,7 +28,7 @@ if (!apiKey || apiKey === 'missing-key') {
 
 const ai = new GoogleGenAI({ apiKey: apiKey || 'missing-key' });
 
-export const analyzeConsignmentImage = async (base64Image: string): Promise<ExtractedData> => {
+export const analyzeConsignmentImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<ExtractedData> => {
   const modelId = "gemini-2.5-flash";
 
   const prompt = `
@@ -123,7 +123,7 @@ export const analyzeConsignmentImage = async (base64Image: string): Promise<Extr
         parts: [
           {
             inlineData: {
-              mimeType: "image/jpeg",
+              mimeType: mimeType,
               data: base64Image,
             },
           },
@@ -167,18 +167,44 @@ export const analyzeConsignmentImage = async (base64Image: string): Promise<Extr
 
   } catch (error: any) {
     console.error("Error calling Gemini:", error);
+    console.error("Error details:", {
+      message: error?.message,
+      status: error?.status,
+      statusText: error?.statusText,
+      response: error?.response
+    });
 
     // Provide more helpful error messages
     if (error?.message?.includes('API_KEY') || error?.message?.includes('api key')) {
-      throw new Error("API Key de Gemini no configurada. Verifica tu archivo .env.local");
+      throw new Error("🔑 API Key de Gemini no configurada. Verifica tu archivo .env.local");
     }
-    if (error?.message?.includes('quota') || error?.message?.includes('limit')) {
-      throw new Error("Límite de cuota de API excedido. Verifica tu plan de Gemini.");
+    if (error?.message?.includes('quota') || error?.message?.includes('limit') || error?.message?.includes('429')) {
+      throw new Error("📊 Límite de cuota de API excedido. Espera unos minutos o verifica tu plan de Gemini.");
     }
-    if (error?.message?.includes('invalid') || error?.message?.includes('unauthorized')) {
-      throw new Error("API Key inválida. Verifica tu clave de Gemini.");
+    if (error?.message?.includes('invalid') || error?.message?.includes('unauthorized') || error?.message?.includes('403')) {
+      throw new Error("🚫 API Key inválida. Verifica tu clave de Gemini.");
+    }
+    if (error?.message?.includes('timeout') || error?.message?.includes('ETIMEDOUT')) {
+      throw new Error("⏱️ Timeout: La imagen tardó mucho en procesarse. Intenta con una imagen más pequeña.");
+    }
+    if (error?.message?.includes('network') || error?.message?.includes('ECONNREFUSED')) {
+      throw new Error("🌐 Error de red. Verifica tu conexión a internet.");
+    }
+    if (error?.message?.includes('too large') || error?.message?.includes('size') || error?.status === 413) {
+      throw new Error("📦 Imagen demasiado grande. Intenta con una imagen más pequeña (máx 10MB).");
+    }
+    if (error?.message?.includes('format') || error?.message?.includes('mime')) {
+      throw new Error("🖼️ Formato de imagen no soportado. Usa JPG, PNG, WEBP o GIF.");
+    }
+    if (error?.message?.includes('400')) {
+      throw new Error("❌ Solicitud inválida. La imagen puede estar corrupta o en formato no soportado.");
+    }
+    if (error?.message?.includes('500') || error?.message?.includes('502') || error?.message?.includes('503')) {
+      throw new Error("🔧 Error del servidor de Gemini. Intenta de nuevo en unos minutos.");
     }
 
-    throw new Error(`Error al procesar imagen: ${error?.message || 'Error desconocido'}`);
+    // Si no coincide con ningún error conocido, mostrar el mensaje original
+    const errorMessage = error?.message || error?.toString() || 'Error desconocido';
+    throw new Error(`❌ Error al procesar imagen: ${errorMessage}`);
   }
 };
