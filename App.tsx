@@ -14,7 +14,7 @@ import { processImageFile } from './utils/imageCompression';
 const App: React.FC = () => {
   // Local records (just uploaded/processed in this session)
   const [localRecords, setLocalRecords] = useState<ConsignmentRecord[]>([]);
-  
+
   // Remote records (fetched from Google Sheets)
   const [sheetRecords, setSheetRecords] = useState<ConsignmentRecord[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -22,7 +22,7 @@ const App: React.FC = () => {
 
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  
+
   // Tab State
   const [activeTab, setActiveTab] = useState<'UPLOAD' | 'HISTORY'>('UPLOAD');
 
@@ -82,8 +82,8 @@ const App: React.FC = () => {
   // Force update URL if the constant changes (Auto-fix for user)
   useEffect(() => {
     if (GOOGLE_SCRIPT_URL && scriptUrl !== GOOGLE_SCRIPT_URL) {
-       setScriptUrl(GOOGLE_SCRIPT_URL);
-       localStorage.setItem('config_script_url', GOOGLE_SCRIPT_URL);
+      setScriptUrl(GOOGLE_SCRIPT_URL);
+      localStorage.setItem('config_script_url', GOOGLE_SCRIPT_URL);
     }
   }, [scriptUrl]);
 
@@ -113,27 +113,27 @@ const App: React.FC = () => {
   // 3. Cargar configuración de cuentas desde Google Sheets
   const loadAccountsFromSheets = async (url = scriptUrl) => {
     if (!url) return;
-    
+
     try {
       const config = await fetchAccountsFromSheets(url);
-      
+
       // Si la hoja está vacía, sincronizar valores por defecto
       if (config.accounts.length === 0 && config.convenios.length === 0) {
         console.log("Hoja Cuentas vacía. Sincronizando valores por defecto...");
         await syncAccountsToSheets();
         return;
       }
-      
+
       if (config.accounts.length > 0) {
         setAllowedAccounts(config.accounts);
         localStorage.setItem('config_accounts', JSON.stringify(config.accounts));
       }
-      
+
       if (config.convenios.length > 0) {
         setAllowedConvenios(config.convenios);
         localStorage.setItem('config_convenios', JSON.stringify(config.convenios));
       }
-      
+
       console.log(`Cuentas y convenios cargados desde Google Sheets: ${config.accounts.length} cuentas, ${config.convenios.length} convenios`);
     } catch (err: any) {
       console.error("Failed to load accounts from sheets", err);
@@ -146,11 +146,11 @@ const App: React.FC = () => {
       alert("Configura la URL del Script primero");
       return;
     }
-    
+
     try {
       const result = await saveAccountsToSheets(allowedAccounts, allowedConvenios, scriptUrl);
       alert(result.message);
-      
+
       if (result.success) {
         console.log("Configuración sincronizada exitosamente");
       }
@@ -207,12 +207,12 @@ const App: React.FC = () => {
     currentAccounts: ConfigItem[],
     currentConvenios: ConfigItem[]
   ): { status: ValidationStatus, message: string } => {
-    
+
     // 1. Quality Check
     if (!data.isReadable || data.imageQualityScore < MIN_QUALITY_SCORE) {
-      return { 
-        status: ValidationStatus.LOW_QUALITY, 
-        message: `Calidad insuficiente (${data.imageQualityScore}/100, requiere ${MIN_QUALITY_SCORE}).` 
+      return {
+        status: ValidationStatus.LOW_QUALITY,
+        message: `Calidad insuficiente (${data.imageQualityScore}/100, requiere ${MIN_QUALITY_SCORE}).`
       };
     }
 
@@ -222,10 +222,10 @@ const App: React.FC = () => {
     // A-0. IMAGE HASH CHECK (Detect exact same image file)
     // Si es exactamente la misma imagen -> duplicado inmediato
     if (data.imageHash) {
-      const sameImageDuplicate = allRecords.find(r => 
+      const sameImageDuplicate = allRecords.find(r =>
         r.imageHash && r.imageHash === data.imageHash
       );
-      
+
       if (sameImageDuplicate) {
         return {
           status: ValidationStatus.DUPLICATE,
@@ -236,7 +236,7 @@ const App: React.FC = () => {
 
     // A. MÚLTIPLES NÚMEROS DE APROBACIÓN - TODOS DEBEN SER ÚNICOS
     // Validar CADA número único que esté presente (RRN, RECIBO, APRO, OPERACION, COMPROBANTE)
-    
+
     const uniqueIds = [
       { field: 'RRN', value: data.rrn },
       { field: 'RECIBO', value: data.recibo },
@@ -245,13 +245,13 @@ const App: React.FC = () => {
       { field: 'COMPROBANTE', value: data.comprobante },
       { field: 'ID TRANSACCIÓN', value: data.uniqueTransactionId }
     ];
-    
+
     for (const idEntry of uniqueIds) {
       if (!idEntry.value || idEntry.value.trim().length === 0) continue;
-      
+
       const rawNewId = idEntry.value.trim();
       const fieldName = idEntry.field;
-      
+
       // NIVEL 1: Verificación EXACTA contra TODOS los campos de IDs en registros existentes
       const exactDuplicate = allRecords.find(r => {
         // Comparar contra TODOS los posibles campos de ID
@@ -263,7 +263,7 @@ const App: React.FC = () => {
           r.comprobante,
           r.uniqueTransactionId
         ];
-        
+
         return existingIds.some(existingId => {
           if (!existingId || typeof existingId !== 'string') return false;
           const rawExisting = String(existingId).trim();
@@ -272,17 +272,17 @@ const App: React.FC = () => {
           return rawExisting.toLowerCase() === rawNewId.toLowerCase();
         });
       });
-      
+
       if (exactDuplicate) {
-        return { 
-          status: ValidationStatus.DUPLICATE, 
-          message: `⛔ ${fieldName} DUPLICADO: "${rawNewId}" ya existe en la base de datos` 
+        return {
+          status: ValidationStatus.DUPLICATE,
+          message: `⛔ ${fieldName} DUPLICADO: "${rawNewId}" ya existe en la base de datos`
         };
       }
-      
+
       // NIVEL 2: Verificación NUMÉRICA (solo dígitos, para detectar variaciones de formato)
       const normalizedNew = rawNewId.replace(/\D/g, '');
-      
+
       if (normalizedNew.length >= 4) {
         const numericDuplicate = allRecords.find(r => {
           const existingIds = [
@@ -293,46 +293,47 @@ const App: React.FC = () => {
             r.comprobante,
             r.uniqueTransactionId
           ];
-          
+
           return existingIds.some(existingId => {
             if (!existingId) return false;
-            const normalizedExisting = existingId.replace(/\D/g, '');
+            // Convertir a string para evitar error si viene como número de Google Sheets
+            const normalizedExisting = String(existingId).replace(/\D/g, '');
             return normalizedExisting.length >= 4 && normalizedExisting === normalizedNew;
           });
         });
-        
+
         if (numericDuplicate) {
-          return { 
-            status: ValidationStatus.DUPLICATE, 
-            message: `⛔ ${fieldName} DUPLICADO: "${rawNewId}" (coincide numéricamente: ${normalizedNew})` 
+          return {
+            status: ValidationStatus.DUPLICATE,
+            message: `⛔ ${fieldName} DUPLICADO: "${rawNewId}" (coincide numéricamente: ${normalizedNew})`
           };
         }
       }
     }
-    
+
     // B. EXACT AMOUNT + DATE + TIME CHECK (For receipts with timestamp)
     // SOLO aplicar si NO hay números únicos disponibles
     // Si el recibo tiene RRN/RECIBO/APRO/etc., esos son suficientes para identificarlo
     const hasUniqueIds = Boolean(
       data.rrn || data.recibo || data.apro || data.operacion || data.comprobante || data.uniqueTransactionId
     );
-    
+
     if (!hasUniqueIds) {
       // Solo validar por heurística si no tiene números únicos
       const exactTimeDuplicate = allRecords.find(r => {
         const exactAmount = r.amount === data.amount;
         const sameDate = r.date === data.date;
         const sameTime = r.time && data.time && r.time.substring(0, 5) === data.time.substring(0, 5);
-        
+
         if (exactAmount && sameDate && sameTime) return true;
 
-      return false;
-    });
+        return false;
+      });
 
       if (exactTimeDuplicate) {
-        return { 
-          status: ValidationStatus.DUPLICATE, 
-          message: `Duplicado: Monto exacto ($${data.amount}), fecha (${data.date}) y hora (${data.time})` 
+        return {
+          status: ValidationStatus.DUPLICATE,
+          message: `Duplicado: Monto exacto ($${data.amount}), fecha (${data.date}) y hora (${data.time})`
         };
       }
     }
@@ -340,15 +341,15 @@ const App: React.FC = () => {
     // C, D, E: VALIDACIONES HEURÍSTICAS
     // SOLO aplicar si NO hay números únicos disponibles
     // Si tiene RRN/RECIBO/APRO/OPERACION/COMPROBANTE, esos identificadores son definitivos
-    
+
     if (!hasUniqueIds) {
       // C. EXACT AMOUNT + DATE + BANK + CLIENT REFERENCE CHECK
       const exactRefDuplicate = allRecords.find(r => {
         const exactAmount = r.amount === data.amount;
         const sameDate = r.date === data.date;
-        const sameBank = r.bankName && data.bankName && 
+        const sameBank = r.bankName && data.bankName &&
           normalizeAccount(r.bankName) === normalizeAccount(data.bankName);
-        
+
         const ref1 = r.paymentReference ? normalizeAccount(r.paymentReference) : '';
         const ref2 = data.paymentReference ? normalizeAccount(data.paymentReference) : '';
         const sameClientRef = ref1.length > 3 && ref2.length > 3 && ref1 === ref2;
@@ -358,9 +359,9 @@ const App: React.FC = () => {
       });
 
       if (exactRefDuplicate) {
-        return { 
-          status: ValidationStatus.DUPLICATE, 
-          message: `Duplicado: Monto exacto ($${data.amount}), fecha, banco y referencia de cliente` 
+        return {
+          status: ValidationStatus.DUPLICATE,
+          message: `Duplicado: Monto exacto ($${data.amount}), fecha, banco y referencia de cliente`
         };
       }
 
@@ -368,7 +369,7 @@ const App: React.FC = () => {
       const exactAccountDuplicate = allRecords.find(r => {
         const exactAmount = r.amount === data.amount;
         const sameDate = r.date === data.date;
-        
+
         const acc1 = normalizeAccount(r.accountOrConvenio || '');
         const acc2 = normalizeAccount(data.accountOrConvenio || '');
         const sameAccount = acc1.length > 3 && acc2.length > 3 && acc1 === acc2;
@@ -382,9 +383,9 @@ const App: React.FC = () => {
       });
 
       if (exactAccountDuplicate) {
-        return { 
-          status: ValidationStatus.DUPLICATE, 
-          message: `Duplicado: Monto exacto ($${data.amount}), fecha, cuenta/convenio y cliente` 
+        return {
+          status: ValidationStatus.DUPLICATE,
+          message: `Duplicado: Monto exacto ($${data.amount}), fecha, cuenta/convenio y cliente`
         };
       }
 
@@ -392,21 +393,21 @@ const App: React.FC = () => {
       if (data.amount >= 100000) {
         const hasNoTime = !data.time || data.time === '';
         const hasNoRef = !data.paymentReference || data.paymentReference === '';
-        
+
         if (hasNoTime && hasNoRef) {
           const suspiciousDuplicate = allRecords.find(r => {
             const exactAmount = r.amount === data.amount;
             const sameDate = r.date === data.date;
-            const sameBank = r.bankName && data.bankName && 
+            const sameBank = r.bankName && data.bankName &&
               normalizeAccount(r.bankName) === normalizeAccount(data.bankName);
-            
+
             return exactAmount && sameDate && sameBank;
           });
 
           if (suspiciousDuplicate) {
-            return { 
-              status: ValidationStatus.DUPLICATE, 
-              message: `Posible duplicado: Monto alto ($${data.amount}) y fecha coinciden. Verifique manualmente.` 
+            return {
+              status: ValidationStatus.DUPLICATE,
+              message: `Posible duplicado: Monto alto ($${data.amount}) y fecha coinciden. Verifique manualmente.`
             };
           }
         }
@@ -419,7 +420,7 @@ const App: React.FC = () => {
     const validConvenioValues = currentConvenios.map(item => normalizeAccount(item.value));
 
     if (!extractedAcc && data.paymentReference) {
-      const possibleAccountInRef = currentAccounts.find(accItem => 
+      const possibleAccountInRef = currentAccounts.find(accItem =>
         normalizeAccount(data.paymentReference || '').includes(normalizeAccount(accItem.value))
       );
       if (possibleAccountInRef) {
@@ -432,17 +433,17 @@ const App: React.FC = () => {
     const isRefValid = COMMON_REFERENCES.some(ref => normalizeAccount(ref) === extractedAcc);
 
     if (!isAccountValid && !isConvenioValid && !isRefValid) {
-       const relaxedMatch = [...currentAccounts, ...currentConvenios].some(item => {
-         const normAllowed = normalizeAccount(item.value);
-         return extractedAcc.includes(normAllowed) || (data.rawText && data.rawText.replace(/\s/g, '').includes(normAllowed));
-       });
-       
-       if (!relaxedMatch) {
-         return { 
-           status: ValidationStatus.INVALID_ACCOUNT, 
-           message: `Cuenta/Convenio '${data.accountOrConvenio || 'No detectado'}' no autorizado.` 
-         };
-       }
+      const relaxedMatch = [...currentAccounts, ...currentConvenios].some(item => {
+        const normAllowed = normalizeAccount(item.value);
+        return extractedAcc.includes(normAllowed) || (data.rawText && data.rawText.replace(/\s/g, '').includes(normAllowed));
+      });
+
+      if (!relaxedMatch) {
+        return {
+          status: ValidationStatus.INVALID_ACCOUNT,
+          message: `Cuenta/Convenio '${data.accountOrConvenio || 'No detectado'}' no autorizado.`
+        };
+      }
     }
 
     return { status: ValidationStatus.VALID, message: 'OK' };
@@ -451,14 +452,14 @@ const App: React.FC = () => {
   const handleFileSelect = useCallback(async (files: File[]) => {
     setStatus(ProcessingStatus.ANALYZING);
     setErrorMsg(null);
-    setActiveTab('UPLOAD'); 
+    setActiveTab('UPLOAD');
 
     try {
       const processFile = async (file: File): Promise<Partial<ConsignmentRecord> | null> => {
         try {
           // 1. Validar y comprimir imagen
           const compressionResult = await processImageFile(file);
-          
+
           if (!compressionResult.success) {
             console.error('Error procesando imagen:', compressionResult.error);
             return {
@@ -479,13 +480,13 @@ const App: React.FC = () => {
               rawText: ''
             };
           }
-          
+
           const base64Data = compressionResult.data!;
           const base64String = `data:${compressionResult.mimeType};base64,${base64Data}`;
-          
+
           // 2. Generar hash de la imagen para detectar duplicados exactos
           const imageHash = await generateImageHash(base64Data);
-          
+
           // 3. Analizar con Gemini
           try {
             const extractedData = await analyzeConsignmentImage(base64Data, compressionResult.mimeType);
@@ -543,9 +544,9 @@ const App: React.FC = () => {
       const validRawResults = rawResults.filter((r): r is Partial<ConsignmentRecord> => r !== null);
 
       if (validRawResults.length === 0 && files.length > 0) {
-         setErrorMsg("No se pudieron leer los archivos.");
-         setStatus(ProcessingStatus.ERROR);
-         return;
+        setErrorMsg("No se pudieron leer los archivos.");
+        setStatus(ProcessingStatus.ERROR);
+        return;
       }
 
       const newRecords: ConsignmentRecord[] = [];
@@ -557,15 +558,15 @@ const App: React.FC = () => {
           newRecords.push(raw as ConsignmentRecord);
           continue;
         }
-        
+
         // Pass raw data with imageHash to validation
         const validation = validateRecord(
-          raw as (ExtractedData & { imageHash?: string }), 
-          currentBatchHistory, 
-          allowedAccounts, 
+          raw as (ExtractedData & { imageHash?: string }),
+          currentBatchHistory,
+          allowedAccounts,
           allowedConvenios
         );
-        
+
         const finalRecord: ConsignmentRecord = {
           ...(raw as ExtractedData),
           id: raw.id!,
@@ -594,7 +595,7 @@ const App: React.FC = () => {
 
   const handleSync = async () => {
     const validRecords = localRecords.filter(r => r.status === ValidationStatus.VALID);
-    
+
     if (validRecords.length === 0) {
       alert("No hay registros 'Aprobados' nuevos para enviar.");
       return;
@@ -603,15 +604,15 @@ const App: React.FC = () => {
     setIsSyncing(true);
     const result = await sendToGoogleSheets(validRecords, scriptUrl);
     setIsSyncing(false);
-    
+
     alert(result.message);
-    
+
     if (result.success) {
-        // Clear valid local records after sync
-        setLocalRecords(prev => prev.filter(r => r.status !== ValidationStatus.VALID));
-        // Refresh history
-        loadSheetHistory();
-        setActiveTab('HISTORY');
+      // Clear valid local records after sync
+      setLocalRecords(prev => prev.filter(r => r.status !== ValidationStatus.VALID));
+      // Refresh history
+      loadSheetHistory();
+      setActiveTab('HISTORY');
     }
   };
 
@@ -624,30 +625,30 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Header 
-        onOpenConfig={() => setConfigOpen(true)} 
+      <Header
+        onOpenConfig={() => setConfigOpen(true)}
         onSync={handleSync}
         isSyncing={isSyncing}
       />
-      
+
       <main className="flex-grow max-w-[95%] w-full mx-auto px-4 py-8">
-        
+
         <div className="flex border-b border-gray-200 mb-6">
           <button
             onClick={() => setActiveTab('UPLOAD')}
             className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'UPLOAD'
-                ? 'border-brand-600 text-brand-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
+              ? 'border-brand-600 text-brand-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
           >
             Validación en Curso (Nuevos)
           </button>
           <button
             onClick={() => setActiveTab('HISTORY')}
             className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'HISTORY'
-                ? 'border-brand-600 text-brand-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
+              ? 'border-brand-600 text-brand-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
           >
             Historial Base de Datos {isLoadingHistory && '(Cargando...)'}
           </button>
@@ -666,7 +667,7 @@ const App: React.FC = () => {
                 )}
               </div>
             )}
-            
+
             {activeTab === 'HISTORY' && (
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Estado</h2>
@@ -677,8 +678,8 @@ const App: React.FC = () => {
                 ) : (
                   <p className="text-sm text-green-600 mb-4">Conectado a Google Sheets</p>
                 )}
-                
-                <button 
+
+                <button
                   onClick={() => loadSheetHistory()}
                   className="w-full bg-brand-100 text-brand-700 py-2 rounded-lg hover:bg-brand-200 transition-colors mb-4"
                 >
@@ -692,47 +693,47 @@ const App: React.FC = () => {
 
             <div className="bg-indigo-50 p-4 rounded-xl text-sm text-indigo-800">
               <p className="font-bold mb-2">Validación Exhaustiva:</p>
-               <ul className="list-disc pl-4 space-y-1 text-xs">
+              <ul className="list-disc pl-4 space-y-1 text-xs">
                 <li><strong>⛔ Números Únicos:</strong> RRN, RECIBO, APRO, OPERACION deben ser ÚNICOS. Si alguno se repite = DUPLICADO.</li>
                 <li><strong>📸 Imagen:</strong> Detecta si la misma foto se sube dos veces (hash).</li>
                 <li><strong>✅ Montos/Fechas:</strong> Pueden repetirse si los números de aprobación son diferentes.</li>
                 <li><strong>✅ Convenios:</strong> Pueden repetirse (múltiples clientes al mismo convenio).</li>
-                 <li><strong>Calidad:</strong> Mínimo 3 de 5 estrellas (60/100).</li>
+                <li><strong>Calidad:</strong> Mínimo 3 de 5 estrellas (60/100).</li>
                 <li><strong>Prioridad:</strong> Los números únicos son definitivos. Heurísticas solo si no hay números.</li>
-               </ul>
+              </ul>
             </div>
           </div>
 
           <div className="lg:col-span-3">
-             <Stats records={displayedRecords} />
-             
-             <div className="flex items-center justify-between mb-4">
-               <h2 className="text-lg font-semibold text-gray-900">
-                 {activeTab === 'UPLOAD' ? 'Registros Locales (Sin Sincronizar)' : 'Registros en la Nube'} ({displayedRecords.length})
-               </h2>
-               {activeTab === 'UPLOAD' && localRecords.length > 0 && (
-                 <button onClick={() => setLocalRecords([])} className="text-sm text-red-600 hover:underline">
-                   Limpiar Todo
-                 </button>
-               )}
-             </div>
+            <Stats records={displayedRecords} />
 
-             <ConsignmentTable 
-                records={displayedRecords} 
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">
+                {activeTab === 'UPLOAD' ? 'Registros Locales (Sin Sincronizar)' : 'Registros en la Nube'} ({displayedRecords.length})
+              </h2>
+              {activeTab === 'UPLOAD' && localRecords.length > 0 && (
+                <button onClick={() => setLocalRecords([])} className="text-sm text-red-600 hover:underline">
+                  Limpiar Todo
+                </button>
+              )}
+            </div>
+
+            <ConsignmentTable
+              records={displayedRecords}
               onDelete={activeTab === 'UPLOAD' ? handleDelete : () => { }}
-                onViewImage={(url) => setSelectedImage(url)}
-             />
+              onViewImage={(url) => setSelectedImage(url)}
+            />
           </div>
         </div>
       </main>
 
-      <ImageModal 
-        isOpen={!!selectedImage} 
-        imageUrl={selectedImage} 
-        onClose={() => setSelectedImage(null)} 
+      <ImageModal
+        isOpen={!!selectedImage}
+        imageUrl={selectedImage}
+        onClose={() => setSelectedImage(null)}
       />
 
-      <ConfigModal 
+      <ConfigModal
         isOpen={configOpen}
         onClose={() => setConfigOpen(false)}
         accounts={allowedAccounts}

@@ -6,9 +6,11 @@ export const COMPANY_NAME = "Distribuidora La Paruma SAS";
 export const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbztmBbxC5Ljnh3eF1GjM0pcFVAE0ft7gBGDCwyEKarzuj-dAA9v1H0Y75myXk-hKWfU/exec"; 
 
 // Normalize strings: remove spaces, dashes, and leading zeros for accurate comparison
-export const normalizeAccount = (acc: string) => {
-  if (!acc) return '';
-  const clean = acc.replace(/[\s-]/g, '');
+export const normalizeAccount = (acc: string | number | null | undefined) => {
+  if (acc === null || acc === undefined || acc === '') return '';
+  // Convertir a string para manejar valores numéricos de Google Sheets
+  const str = String(acc);
+  const clean = str.replace(/[\s-]/g, '');
   // Remove leading zeros: "000245" -> "245"
   return clean.replace(/^0+/, '');
 };
