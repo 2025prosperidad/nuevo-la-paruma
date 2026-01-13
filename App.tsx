@@ -9,7 +9,7 @@ import { AuthorizationModal } from './components/AuthorizationModal';
 import { analyzeConsignmentImage } from './services/geminiService';
 import { sendToGoogleSheets, fetchHistoryFromSheets, fetchAccountsFromSheets, saveAccountsToSheets } from './services/sheetsService';
 import { ConsignmentRecord, ProcessingStatus, ValidationStatus, ExtractedData, ConfigItem } from './types';
-import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL, CERVECERIA_UNION_CLIENT_CODE, CERVECERIA_UNION_KEYWORDS, MIN_CONFIDENCE_SCORE, ALLOWED_CREDIT_CARDS } from './constants';
+import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL, CERVECERIA_UNION_CLIENT_CODE, CERVECERIA_UNION_KEYWORDS, CERVECERIA_UNION_CONVENIOS, MIN_CONFIDENCE_SCORE, ALLOWED_CREDIT_CARDS } from './constants';
 import { processImageFile } from './utils/imageCompression';
 
 const App: React.FC = () => {
@@ -38,7 +38,7 @@ const App: React.FC = () => {
 
   // Modal state
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  
+
   // Authorization Modal state
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [recordToAuthorize, setRecordToAuthorize] = useState<string | null>(null);
@@ -244,7 +244,7 @@ const App: React.FC = () => {
     // 0-D. CAPTURAS DE PANTALLA SIN NÚMERO DE RECIBO = REQUIERE AUTORIZACIÓN
     const hasPhysicalReceiptNumber = Boolean(data.rrn || data.recibo || data.apro);
     const hasAnyTransactionId = Boolean(data.rrn || data.recibo || data.apro || data.operacion || data.comprobante || data.uniqueTransactionId);
-    
+
     if (data.isScreenshot && !hasPhysicalReceiptNumber) {
       // Es una captura de pantalla sin número de recibo físico
       // Puede tener número de operación pero necesita autorización humana
@@ -398,10 +398,25 @@ const App: React.FC = () => {
       rawText.includes(card) || rawText.includes(`****${card}`) || rawText.includes(`*${card}`)
     );
 
-    // Verificar si es pago a Cervecería Unión
-    const isCerveceriaUnion = CERVECERIA_UNION_KEYWORDS.some(keyword => 
+    // Verificar si es pago a Cervecería Unión por MÚLTIPLES MÉTODOS:
+    // 1. Por palabras clave en el texto
+    const isCerveceriaByKeyword = CERVECERIA_UNION_KEYWORDS.some(keyword => 
       rawText.includes(keyword.toLowerCase())
     );
+    
+    // 2. Por número de convenio
+    const normalizedConvenio = normalizeAccount(data.accountOrConvenio || '');
+    const isCerveceriaByConvenio = CERVECERIA_UNION_CONVENIOS.some(conv => 
+      normalizeAccount(conv) === normalizedConvenio
+    );
+    
+    // 3. Por referencia que contenga el código cliente
+    const hasClientCodeInRef = data.paymentReference?.includes(CERVECERIA_UNION_CLIENT_CODE) ||
+                               data.paymentReference?.includes('10813353') ||
+                               rawText.includes('10813353');
+    
+    // Combinar todas las detecciones
+    const isCerveceriaUnion = isCerveceriaByKeyword || isCerveceriaByConvenio || hasClientCodeInRef;
 
     // Si es Cervecería Unión, el código cliente debe ser 10813353
     if (isCerveceriaUnion && data.clientCode !== CERVECERIA_UNION_CLIENT_CODE) {

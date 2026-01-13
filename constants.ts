@@ -62,6 +62,14 @@ export const COMMON_REFERENCES = [
 // Código de cliente de Cervecería Unión para La Paruma
 export const CERVECERIA_UNION_CLIENT_CODE = '10813353';
 
+// Convenios que corresponden a Cervecería Unión
+export const CERVECERIA_UNION_CONVENIOS = [
+  '32137',   // CERVECERÍA UNIÓN T R
+  '56885',   // RIN CERVECERÍA UNIÓN
+  '1709',    // CEO - Cervecería Unión S.A.
+  '18129',   // CERVECERÍA UNION S.A - RM (Banco Agrario)
+];
+
 // Palabras clave que identifican pagos a Cervecería Unión
 export const CERVECERIA_UNION_KEYWORDS = [
   'cerveceria union',
@@ -71,7 +79,11 @@ export const CERVECERIA_UNION_KEYWORDS = [
   'cervunion',
   'cerv union',
   'rin cerveceria',
-  'rin cervecería'
+  'rin cervecería',
+  'cerveceria uni',    // Para casos abreviados como "CERVECERIA UNI-N"
+  'ceo 1709',          // CEO Cervecería
+  'cerveceria s.a',
+  'cervecería s.a'
 ];
 
 // Umbral mínimo de confianza de la IA para aprobar automáticamente

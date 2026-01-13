@@ -79,10 +79,25 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
        - Example: "Sucursal: 549 - PLAZA DEL RIO, Ciudad: APARTADO" → city="APARTADO"
        - If multiple cities mentioned, use the one most clearly marked
     
-    3. **🍺 CERVECERÍA UNIÓN DETECTION**:
-       - If you see "Cerveceria Union", "CERVECERÍA UNIÓN", "Cervunion", "RIN CERVECERIA"
-       - Set clientCode="10813353" (this is La Paruma's client code with Cervecería Unión)
-       - Also look for "Codigo cliente cervunion" field
+    3. **🍺 CERVECERÍA UNIÓN DETECTION (CRITICAL)**:
+       - ALWAYS set clientCode="10813353" if ANY of these conditions are met:
+       
+       A) **By Keywords**:
+          - "Cerveceria Union", "CERVECERÍA UNIÓN", "Cervunion"
+          - "RIN CERVECERIA", "RIN CERVECERÍA UNI-N"
+          - "CEO 1709", "CERVECERIA S.A"
+       
+       B) **By Convenio Number**:
+          - Convenio 32137 = CERVECERÍA UNIÓN T R
+          - Convenio 56885 = RIN CERVECERÍA UNIÓN  
+          - Convenio/CEO 1709 = CERVECERÍA UNIÓN S.A
+          - Convenio 18129 = CERVECERÍA UNION S.A - RM
+       
+       C) **By Reference**:
+          - If reference contains "10813353"
+          - If "Codigo cliente cervunion" shows 10813353
+       
+       ⚠️ If detected as Cervecería Unión, ALWAYS return clientCode="10813353"
     
     4. **📱 SCREENSHOT VS PHYSICAL RECEIPT**:
        - isScreenshot=true if: App screenshot, phone status bar visible, Nequi purple background
