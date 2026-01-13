@@ -6,6 +6,7 @@ import { ConsignmentTable } from './components/ConsignmentTable';
 import { ImageModal } from './components/ImageModal';
 import { ConfigModal } from './components/ConfigModal';
 import { AuthorizationModal } from './components/AuthorizationModal';
+import { VerifyNumbersModal } from './components/VerifyNumbersModal';
 import { analyzeConsignmentImage } from './services/geminiService';
 import { sendToGoogleSheets, fetchHistoryFromSheets, fetchAccountsFromSheets, saveAccountsToSheets } from './services/sheetsService';
 import { ConsignmentRecord, ProcessingStatus, ValidationStatus, ExtractedData, ConfigItem } from './types';
@@ -42,6 +43,10 @@ const App: React.FC = () => {
   // Authorization Modal state
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [recordToAuthorize, setRecordToAuthorize] = useState<string | null>(null);
+  
+  // Verification Modal state
+  const [verifyModalOpen, setVerifyModalOpen] = useState(false);
+  const [recordToVerify, setRecordToVerify] = useState<string | null>(null);
 
   // 1. Load Config on Mount
   useEffect(() => {
@@ -228,8 +233,8 @@ const App: React.FC = () => {
     // 0-B. VERIFICAR SI HAY NÚMEROS AMBIGUOS (MÁXIMA PRIORIDAD)
     // Si la IA reporta CUALQUIER número dudoso, rechazar inmediatamente
     if (data.hasAmbiguousNumbers === true) {
-      const camposProblematicos = data.ambiguousFields && data.ambiguousFields.length > 0 
-        ? data.ambiguousFields.join(', ') 
+      const camposProblematicos = data.ambiguousFields && data.ambiguousFields.length > 0
+        ? data.ambiguousFields.join(', ')
         : 'números de transacción';
       return {
         status: ValidationStatus.LOW_CONFIDENCE,
@@ -248,11 +253,11 @@ const App: React.FC = () => {
 
     // 0-D. VERIFICAR CALIDAD DE IMAGEN ESPECIAL PARA RECIBOS TÉRMICOS
     // Los recibos Redeban/térmicos necesitan mayor calidad
-    const isThermalReceipt = data.rawText?.toLowerCase().includes('redeban') || 
-                            data.rawText?.toLowerCase().includes('recaudo') ||
-                            data.rawText?.toLowerCase().includes('corresponsal') ||
-                            (data.rrn || data.recibo || data.apro);
-    
+    const isThermalReceipt = data.rawText?.toLowerCase().includes('redeban') ||
+      data.rawText?.toLowerCase().includes('recaudo') ||
+      data.rawText?.toLowerCase().includes('corresponsal') ||
+      (data.rrn || data.recibo || data.apro);
+
     if (isThermalReceipt && data.imageQualityScore < MIN_THERMAL_QUALITY_SCORE) {
       return {
         status: ValidationStatus.LOW_QUALITY,
@@ -469,6 +474,21 @@ const App: React.FC = () => {
           message: `Cuenta/Convenio '${data.accountOrConvenio || 'No detectado'}' no autorizado.`
         };
       }
+    }
+
+    // =====================================================
+    // VERIFICACIÓN FINAL: Todos los recibos con números de transacción
+    // requieren verificación humana antes de ser aprobados
+    // =====================================================
+    const hasTransactionNumbers = Boolean(
+      data.operacion || data.rrn || data.recibo || data.apro || data.comprobante
+    );
+    
+    if (hasTransactionNumbers) {
+      return { 
+        status: ValidationStatus.PENDING_VERIFICATION, 
+        message: '🔍 Verifique los números de transacción contra la imagen antes de aprobar. La IA puede cometer errores (confusión 3↔8, 1↔7, 0↔6).' 
+      };
     }
 
     return { status: ValidationStatus.VALID, message: 'OK' };
@@ -715,6 +735,64 @@ const App: React.FC = () => {
     return localRecords.find(r => r.id === recordToAuthorize);
   };
 
+  // Handle verification request
+  const handleVerifyRequest = (id: string) => {
+    setRecordToVerify(id);
+    setVerifyModalOpen(true);
+  };
+
+  // Handle verification submission
+  const handleVerifySubmit = (verifiedData: {
+    operacion?: string;
+    rrn?: string;
+    recibo?: string;
+    apro?: string;
+    comprobante?: string;
+    verifiedBy: string;
+  }) => {
+    if (!recordToVerify) return;
+
+    setLocalRecords(prev => prev.map(record => {
+      if (record.id === recordToVerify) {
+        // Guardar números originales para referencia
+        const originalNumbers = {
+          operacion: record.operacion || undefined,
+          rrn: record.rrn || undefined,
+          recibo: record.recibo || undefined,
+          apro: record.apro || undefined,
+          comprobante: record.comprobante || undefined,
+        };
+
+        return {
+          ...record,
+          // Actualizar números con los verificados
+          operacion: verifiedData.operacion || record.operacion,
+          rrn: verifiedData.rrn || record.rrn,
+          recibo: verifiedData.recibo || record.recibo,
+          apro: verifiedData.apro || record.apro,
+          comprobante: verifiedData.comprobante || record.comprobante,
+          // Marcar como verificado y aprobado
+          status: ValidationStatus.VALID,
+          statusMessage: `✓ Números verificados por ${verifiedData.verifiedBy}`,
+          verifiedNumbers: true,
+          verifiedBy: verifiedData.verifiedBy,
+          verifiedAt: Date.now(),
+          originalNumbers
+        };
+      }
+      return record;
+    }));
+
+    setRecordToVerify(null);
+    setVerifyModalOpen(false);
+  };
+
+  // Get record to verify for modal
+  const getRecordToVerify = () => {
+    if (!recordToVerify) return null;
+    return localRecords.find(r => r.id === recordToVerify);
+  };
+
   // Determine what to show
   const displayedRecords = activeTab === 'UPLOAD' ? localRecords : sheetRecords;
 
@@ -818,6 +896,7 @@ const App: React.FC = () => {
               onDelete={activeTab === 'UPLOAD' ? handleDelete : () => { }}
               onViewImage={(url) => setSelectedImage(url)}
               onAuthorize={activeTab === 'UPLOAD' ? handleAuthorizeRequest : undefined}
+              onVerifyNumbers={activeTab === 'UPLOAD' ? handleVerifyRequest : undefined}
             />
           </div>
         </div>
@@ -850,6 +929,16 @@ const App: React.FC = () => {
         onAuthorize={handleAuthorizeSubmit}
         recordAmount={getRecordToAuthorize()?.amount}
         recordDate={getRecordToAuthorize()?.date}
+      />
+
+      <VerifyNumbersModal
+        isOpen={verifyModalOpen}
+        record={getRecordToVerify()}
+        onClose={() => {
+          setVerifyModalOpen(false);
+          setRecordToVerify(null);
+        }}
+        onVerify={handleVerifySubmit}
       />
     </div>
   );

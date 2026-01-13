@@ -6,10 +6,11 @@ interface ConsignmentTableProps {
   records: ConsignmentRecord[];
   onDelete: (id: string) => void;
   onViewImage: (url: string) => void;
-  onAuthorize?: (id: string) => void; // Nueva prop para autorización
+  onAuthorize?: (id: string) => void; // Para autorización
+  onVerifyNumbers?: (id: string) => void; // Para verificación de números
 }
 
-export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onDelete, onViewImage, onAuthorize }) => {
+export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onDelete, onViewImage, onAuthorize, onVerifyNumbers }) => {
   
   // Helper: Convert Google Drive URL to viewable format
   const getViewableImageUrl = (url: string): string => {
@@ -52,6 +53,8 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
         return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-800" title={message}>⚠️ Números Dudosos</span>;
       case ValidationStatus.REQUIRES_AUTHORIZATION:
         return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-800" title={message}>📝 Req. Autorización</span>;
+      case ValidationStatus.PENDING_VERIFICATION:
+        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-800" title={message}>🔍 Verificar Números</span>;
       default:
         return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-red-100 text-red-800">❌ Error</span>;
     }
@@ -204,11 +207,27 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                       📎 Subir Autorización
                     </button>
                   )}
+                  {/* Botón de verificación de números */}
+                  {record.status === ValidationStatus.PENDING_VERIFICATION && onVerifyNumbers && (
+                    <button
+                      onClick={() => onVerifyNumbers(record.id)}
+                      className="mt-2 w-full px-2 py-1 bg-amber-500 text-white text-xs rounded hover:bg-amber-600 transition-colors flex items-center justify-center gap-1"
+                    >
+                      🔍 Verificar Números
+                    </button>
+                  )}
                   {/* Mostrar si ya tiene autorización */}
                   {record.authorizationUrl && (
                     <div className="mt-1 text-xs text-green-600 flex items-center gap-1">
                       ✓ Autorizado
                       {record.authorizedBy && <span>por {record.authorizedBy}</span>}
+                    </div>
+                  )}
+                  {/* Mostrar si fue verificado */}
+                  {record.verifiedNumbers && (
+                    <div className="mt-1 text-xs text-green-600 flex items-center gap-1">
+                      ✓ Verificado
+                      {record.verifiedBy && <span>por {record.verifiedBy}</span>}
                     </div>
                   )}
                 </td>

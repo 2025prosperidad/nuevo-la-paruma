@@ -14,6 +14,7 @@ export enum ValidationStatus {
   MISSING_RECEIPT_NUMBER = 'MISSING_RECEIPT_NUMBER', // Sin número de recibo - requiere autorización
   LOW_CONFIDENCE = 'LOW_CONFIDENCE',       // IA no está segura de los números
   REQUIRES_AUTHORIZATION = 'REQUIRES_AUTHORIZATION', // Captura que necesita autorización humana
+  PENDING_VERIFICATION = 'PENDING_VERIFICATION',     // Requiere verificación humana de los números
   UNKNOWN_ERROR = 'UNKNOWN_ERROR'
 }
 
@@ -62,6 +63,18 @@ export interface ConsignmentRecord extends ExtractedData {
   authorizationUrl?: string; // URL del documento de autorización subido
   authorizedBy?: string; // Nombre de quien autorizó
   authorizedAt?: number; // Timestamp de autorización
+  
+  // VERIFICACIÓN DE NÚMEROS
+  verifiedNumbers?: boolean; // Si el usuario verificó que los números son correctos
+  verifiedBy?: string; // Nombre de quien verificó
+  verifiedAt?: number; // Timestamp de verificación
+  originalNumbers?: { // Números originales detectados por IA (antes de corrección)
+    operacion?: string;
+    rrn?: string;
+    recibo?: string;
+    apro?: string;
+    comprobante?: string;
+  };
 }
 
 export interface ValidationRule {
