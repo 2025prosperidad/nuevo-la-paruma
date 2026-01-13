@@ -1,13 +1,15 @@
 import React from 'react';
 import { ConsignmentRecord, ValidationStatus } from '../types';
+import { CERVECERIA_UNION_CLIENT_CODE } from '../constants';
 
 interface ConsignmentTableProps {
   records: ConsignmentRecord[];
   onDelete: (id: string) => void;
   onViewImage: (url: string) => void;
+  onAuthorize?: (id: string) => void; // Nueva prop para autorización
 }
 
-export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onDelete, onViewImage }) => {
+export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onDelete, onViewImage, onAuthorize }) => {
   
   // Helper: Convert Google Drive URL to viewable format
   const getViewableImageUrl = (url: string): string => {
@@ -20,13 +22,11 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
     
     // If it's a Google Drive URL, convert to direct view format
     if (url.includes('drive.google.com')) {
-      // Extract file ID from various Drive URL formats
       const fileIdMatch = url.match(/\/file\/d\/([^\/]+)/);
       const idMatch = url.match(/id=([^&]+)/);
       const fileId = fileIdMatch ? fileIdMatch[1] : (idMatch ? idMatch[1] : null);
       
       if (fileId) {
-        // Use Google Drive thumbnail API for preview
         return `https://drive.google.com/thumbnail?id=${fileId}&sz=w400`;
       }
     }
@@ -37,16 +37,30 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
   const getStatusBadge = (status: ValidationStatus, message: string) => {
     switch (status) {
       case ValidationStatus.VALID:
-        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-800">Aprobado</span>;
+        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-800">✓ Aprobado</span>;
       case ValidationStatus.DUPLICATE:
-        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-yellow-100 text-yellow-800" title={message}>Duplicado</span>;
+        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-yellow-100 text-yellow-800" title={message}>⚠️ Duplicado</span>;
       case ValidationStatus.INVALID_ACCOUNT:
-        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-red-100 text-red-800" title={message}>Cuenta Inválida</span>;
+        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-red-100 text-red-800" title={message}>⛔ Cuenta Inválida</span>;
       case ValidationStatus.LOW_QUALITY:
-        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-gray-200 text-gray-700" title={message}>Ilegible</span>;
+        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-gray-200 text-gray-700" title={message}>📷 Ilegible</span>;
+      case ValidationStatus.MISSING_DATE:
+        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-red-100 text-red-800" title={message}>📅 Sin Fecha</span>;
+      case ValidationStatus.MISSING_RECEIPT_NUMBER:
+        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-orange-100 text-orange-800" title={message}>🧾 Sin Recibo</span>;
+      case ValidationStatus.LOW_CONFIDENCE:
+        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-800" title={message}>⚠️ Números Dudosos</span>;
+      case ValidationStatus.REQUIRES_AUTHORIZATION:
+        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-800" title={message}>📝 Req. Autorización</span>;
       default:
-        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-red-100 text-red-800">Error</span>;
+        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-red-100 text-red-800">❌ Error</span>;
     }
+  };
+
+  // Helper: Check if record needs authorization button
+  const needsAuthorization = (status: ValidationStatus) => {
+    return status === ValidationStatus.REQUIRES_AUTHORIZATION || 
+           status === ValidationStatus.MISSING_RECEIPT_NUMBER;
   };
 
   if (records.length === 0) {
@@ -88,10 +102,15 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                         src={getViewableImageUrl(record.imageUrl)} 
                         alt="Recibo"
                         onError={(e) => {
-                          // Si falla la carga de miniatura, intentar con URL original
                           (e.target as HTMLImageElement).src = record.imageUrl;
                         }}
                       />
+                      {/* Indicador de captura de pantalla */}
+                      {record.isScreenshot && (
+                        <div className="absolute top-0 right-0 bg-blue-500 text-white text-[8px] px-1 rounded-bl">
+                          📱
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="h-12 w-12 rounded border border-gray-300 bg-gray-50 flex items-center justify-center">
@@ -100,7 +119,7 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                   )}
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap">
-                  <div className="font-medium text-gray-900">{record.date || 'N/A'}</div>
+                  <div className="font-medium text-gray-900">{record.date || <span className="text-red-500 font-bold">SIN FECHA</span>}</div>
                   <div className="text-xs text-gray-500">{record.time || '--:--'}</div>
                 </td>
                 <td className="px-4 py-3">
@@ -117,7 +136,14 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                     }
                     
                     if (ids.length === 0) {
-                      return <span className="text-xs text-gray-400 italic">No detectado</span>;
+                      return (
+                        <div>
+                          <span className="text-xs text-red-500 italic font-medium">⚠️ Sin número de recibo</span>
+                          {record.isScreenshot && (
+                            <div className="text-[10px] text-gray-400 mt-1">Captura de pantalla</div>
+                          )}
+                        </div>
+                      );
                     }
                     
                     return (
@@ -130,16 +156,34 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                             </span>
                           </div>
                         ))}
+                        {/* Indicador de confianza */}
+                        {record.confidenceScore !== undefined && record.confidenceScore < 90 && (
+                          <div className="text-[10px] text-amber-600">
+                            ⚠️ Confianza: {record.confidenceScore}%
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap text-gray-600">
-                  {record.paymentReference || '-'}
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <div className="text-gray-600">{record.paymentReference || '-'}</div>
+                  {/* Mostrar código cliente Cervecería Unión si aplica */}
+                  {record.clientCode === CERVECERIA_UNION_CLIENT_CODE && (
+                    <div className="text-xs text-amber-600 font-medium mt-1">
+                      🍺 Cervunión: {record.clientCode}
+                    </div>
+                  )}
                 </td>
-                <td className="px-4 py-3 text-xs text-gray-500 max-w-[150px] truncate" title={record.accountOrConvenio}>
-                  {record.bankName}<br/>
-                  {record.accountOrConvenio}
+                <td className="px-4 py-3 text-xs max-w-[180px]">
+                  {/* Mostrar Banco + Ciudad */}
+                  <div className="font-medium text-gray-900">{record.bankName || 'Desconocido'}</div>
+                  {record.city && (
+                    <div className="text-gray-500 mt-0.5">📍 {record.city}</div>
+                  )}
+                  <div className="text-gray-400 truncate" title={record.accountOrConvenio}>
+                    {record.accountOrConvenio || '-'}
+                  </div>
                 </td>
                 <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">
                   {record.amount 
@@ -149,13 +193,30 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                 <td className="px-4 py-3">
                   {getStatusBadge(record.status, record.statusMessage)}
                   {record.status !== ValidationStatus.VALID && (
-                     <div className="text-xs text-red-500 mt-1 max-w-[180px] leading-tight">{record.statusMessage}</div>
+                    <div className="text-xs text-red-500 mt-1 max-w-[180px] leading-tight">{record.statusMessage}</div>
+                  )}
+                  {/* Botón de autorización para capturas sin recibo */}
+                  {needsAuthorization(record.status) && onAuthorize && (
+                    <button
+                      onClick={() => onAuthorize(record.id)}
+                      className="mt-2 w-full px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition-colors flex items-center justify-center gap-1"
+                    >
+                      📎 Subir Autorización
+                    </button>
+                  )}
+                  {/* Mostrar si ya tiene autorización */}
+                  {record.authorizationUrl && (
+                    <div className="mt-1 text-xs text-green-600 flex items-center gap-1">
+                      ✓ Autorizado
+                      {record.authorizedBy && <span>por {record.authorizedBy}</span>}
+                    </div>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right">
                   <button
                     onClick={() => onDelete(record.id)}
                     className="text-gray-400 hover:text-red-600 transition-colors"
+                    title="Eliminar registro"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

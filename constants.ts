@@ -31,6 +31,11 @@ export const ALLOWED_ACCOUNTS = [
   '444444'       // Otra cuenta temporal
 ];
 
+// Tarjetas de crédito autorizadas (últimos 4 dígitos)
+export const ALLOWED_CREDIT_CARDS = [
+  '4998'  // Tarjeta autorizada terminada en 4998
+];
+
 export const ALLOWED_CONVENIOS = [
   // Davivienda
   '1352327',
@@ -50,9 +55,30 @@ export const ALLOWED_CONVENIOS = [
 ];
 
 export const COMMON_REFERENCES = [
-  '10813353',  // Cliente frecuente (visto en Banco Agrario)
+  '10813353',  // Código Cervecería Unión - Cliente La Paruma
   '13937684'   // Cliente frecuente (visto en múltiples recibos)
 ];
+
+// Código de cliente de Cervecería Unión para La Paruma
+export const CERVECERIA_UNION_CLIENT_CODE = '10813353';
+
+// Palabras clave que identifican pagos a Cervecería Unión
+export const CERVECERIA_UNION_KEYWORDS = [
+  'cerveceria union',
+  'cervecería unión',
+  'cerveceria unión',
+  'cervecería union',
+  'cervunion',
+  'cerv union',
+  'rin cerveceria',
+  'rin cervecería'
+];
+
+// Umbral mínimo de confianza de la IA para aprobar automáticamente
+export const MIN_CONFIDENCE_SCORE = 85;
+
+// Campos críticos que NO pueden tener errores
+export const CRITICAL_FIELDS = ['amount', 'date', 'uniqueTransactionId', 'rrn', 'recibo', 'apro', 'operacion'];
 
 // Changed from 70 to 60 to accept "3 out of 5" quality
 export const MIN_QUALITY_SCORE = 60;

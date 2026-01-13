@@ -33,85 +33,94 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
 
   const prompt = `
     Analyze this image of a Colombian bank payment receipt (consignación or comprobante).
-    Types: Redeban (Thermal paper), Bancolombia App, Nequi (Purple screenshot), Banco Agrario.
+    Types: Redeban (Thermal paper), Bancolombia App, Nequi (Purple screenshot), Banco Agrario, Davivienda.
 
     ⚠️ CRITICAL EXTRACTION RULES - READ CAREFULLY:
     
-    1. **🔑 MÚLTIPLES NÚMEROS ÚNICOS (ABSOLUTELY CRITICAL - ALL MUST BE EXTRACTED)**:
-       ⛔ CADA UNO DE ESTOS NÚMEROS ES ÚNICO Y NUNCA SE PUEDE REPETIR
+    🔒 SEGURIDAD ANTI-FRAUDE:
+    - Si un número NO se ve CLARAMENTE, marca hasAmbiguousNumbers=true y agrega el campo a ambiguousFields
+    - Si hay caracteres borrosos o que podrían confundirse (3/8, 1/7, 0/O, 5/S), reporta incertidumbre
+    - NUNCA adivines números. Si no estás 100% seguro, es mejor reportar baja confianza
+    - El confidenceScore debe reflejar qué tan SEGURO estás de TODOS los números extraídos
+    
+    1. **🔑 MÚLTIPLES NÚMEROS ÚNICOS (ABSOLUTELY CRITICAL)**:
+       ⛔ CADA UNO ES ÚNICO Y NUNCA SE PUEDE REPETIR
        
-       **EXTRACT ALL OF THE FOLLOWING THAT ARE PRESENT:**
+       **EXTRACT ALL PRESENT:**
        
        A) **RRN** (Red de Recaudo Nacional):
-          • Look for label: "RRN:", "RRN", "Red Recaudo"
+          • Labels: "RRN:", "RRN", "Red Recaudo"
           • Usually 6-9 digits
-          • Example: "RRN: 061010" → extract "061010"
-          • Store in field: "rrn"
+          • Example: "RRN: 061010" → "061010"
        
        B) **RECIBO** (Número de Recibo):
-          • Look for label: "RECIBO:", "No. Recibo", "Num Recibo"
+          • Labels: "RECIBO:", "No. Recibo", "Num Recibo"
           • Usually 6-7 digits
-          • Example: "RECIBO: 051453" → extract "051453"
-          • Store in field: "recibo"
        
        C) **APRO** (Código de Aprobación):
-          • Look for label: "APRO:", "APROBACION:", "Cod. Apro", "Autorización"
-          • Usually 6-7 digits
-          • Example: "APRO: 304300" → extract "304300"
-          • Store in field: "apro"
+          • Labels: "APRO:", "APROBACION:", "Cod. Apro", "Autorización"
        
        D) **OPERACION** (Número de Operación):
-          • Look for label: "Operación:", "No. Operación", "Operation"
-          • Usually appears in Banco Agrario or Bancolombia
-          • Example: "Operación: 554404464" → extract "554404464"
-          • Store in field: "operacion"
+          • Labels: "Operación:", "No. Operación", "Registro de Operación"
+          • Common in Banco Agrario, Bancolombia physical receipts
+          • Example: "Registro de Operación: 292652588" → "292652588"
        
        E) **COMPROBANTE** (Número de Comprobante):
-          • Look for label: "Comprobante No.", "No Comprobante", "Comprobante:"
-          • Example: "Comprobante No. 0000004930" → extract "0000004930"
-          • Store in field: "comprobante"
+          • Labels: "Comprobante No.", "No Comprobante"
        
-       F) **REGISTRO DE OPERACIÓN**:
-          • Look for: "REGISTRO DE OPERACIÓN", "Registro Operacion"
-          • Example: "No 20851649" → extract "20851649"
-          • Store in field: "operacion"
-       
-       ⚠️ CRITICAL RULES:
-       - Extract EACH number separately into its corresponding field
-       - Return COMPLETE values with ALL characters (no truncation)
-       - DO NOT remove dashes, letters, or special characters
-       - If a Redeban receipt has RRN, RECIBO, and APRO, extract ALL THREE
-       - Also put the most prominent one in "uniqueTransactionId" for backward compatibility
-       - ALL these numbers are UNIQUE - they can NEVER be duplicated
-       
-       ⚠️ DO NOT CONFUSE WITH:
-       - "Referencia" or "Ref 1" or "REF:" (this is CLIENT ID, not transaction ID)
-       - "Cuenta" or "Convenio" (these are account numbers, can repeat)
-       - "Cedula" or "NIT" (these are client identifiers, can repeat)
+       ⚠️ CRITICAL:
+       - Extract COMPLETE values - NO truncation
+       - If unclear, mark confidenceScore LOW and hasAmbiguousNumbers=true
+       - Put the most prominent ID in uniqueTransactionId for backward compatibility
     
-    2. **Destination Account/Convenio**: 
-       - Look for "Cuenta de Ahorros", "Cuenta Corriente", "Convenio", "Producto"
-       - If it says "Convenio: 12345", extract "12345"
-       - Note: Convenios CAN repeat (multiple clients pay to same convenio)
+    2. **🏦 BANCO Y CIUDAD**:
+       - Extract bank name: "Bancolombia", "Banco Agrario", "Nequi", "Davivienda", etc.
+       - Look for "Sucursal:", "Ciudad:", "Oficina:" for location
+       - Example: "Sucursal: 549 - PLAZA DEL RIO, Ciudad: APARTADO" → city="APARTADO"
+       - If multiple cities mentioned, use the one most clearly marked
     
-    3. **Payment Reference (Client ID)**:
-       - Look for "Ref 1", "Referencia", "Cedula", "NIT"
-       - ⚠️ WARNING: This is CLIENT identification, NOT transaction ID
-       - These CAN repeat (same client can make multiple payments)
+    3. **🍺 CERVECERÍA UNIÓN DETECTION**:
+       - If you see "Cerveceria Union", "CERVECERÍA UNIÓN", "Cervunion", "RIN CERVECERIA"
+       - Set clientCode="10813353" (this is La Paruma's client code with Cervecería Unión)
+       - Also look for "Codigo cliente cervunion" field
     
-    4. **Time (Hora)**:
-       - Extract time in HH:MM format (e.g. "14:30", "2:30 PM")
-       - Normalize to 24h format if possible
+    4. **📱 SCREENSHOT VS PHYSICAL RECEIPT**:
+       - isScreenshot=true if: App screenshot, phone status bar visible, Nequi purple background
+       - isScreenshot=false if: Thermal paper, physical printer output
+       - hasPhysicalReceipt=true ONLY if there's a RECIBO/RRN/APRO number (Redeban style)
+       - Screenshots from Bancolombia App usually have "Comprobante" but NO physical receipt number
     
-    5. **Date**: 
+    5. **📅 DATE (CRITICAL - REJECT IF MISSING)**:
        - Extract date in YYYY-MM-DD format
-       - HANDLE TEXT MONTHS: If image says "NOV 21 2025", return "2025-11-21"
+       - Handle text months: "27 Dic 2025" → "2025-12-27"
        - Spanish months: ENE=01, FEB=02, MAR=03, ABR=04, MAY=05, JUN=06, JUL=07, AGO=08, SEP=09, OCT=10, NOV=11, DIC=12
+       - ⚠️ If NO date visible, return empty string - this will be REJECTED
+    
+    6. **⏰ TIME**:
+       - Extract time in HH:MM format
+       - Normalize to 24h format
+    
+    7. **💵 AMOUNT**:
+       - Extract total amount as NUMBER (no currency symbol)
+       - "$ 1.000.000,00" → 1000000
+       - "$120,000,000.00" → 120000000
+    
+    8. **🎯 CONFIDENCE SCORE (0-100)**:
+       - 95-100: All numbers crystal clear, no ambiguity
+       - 80-94: Minor blur but confident in reading
+       - 60-79: Some characters unclear, possible errors
+       - 0-59: Significant uncertainty, numbers may be wrong
+       
+       REDUCE confidence if:
+       - Paper is wrinkled or torn
+       - Numbers are partially obscured
+       - Print quality is poor
+       - Similar characters that could be confused (3/8, 1/7, 0/O)
 
-    6. **Quality Score**:
-       - Rate legibility from 0-100
-       - 60 is acceptable for slightly crumpled thermal paper if text is readable
-       - Below 60 is unreadable/blurry
+    9. **🚫 AMBIGUOUS NUMBERS**:
+       - hasAmbiguousNumbers=true if ANY number might be misread
+       - ambiguousFields: List which fields have uncertain readings
+       - Example: If "33" could be "88", ambiguousFields=["operacion"]
 
     Return strictly JSON with all extracted data.
   `;
@@ -136,25 +145,38 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
           type: Type.OBJECT,
           properties: {
             bankName: { type: Type.STRING, description: "Bank name" },
+            city: { type: Type.STRING, description: "City where transaction was made" },
             accountOrConvenio: { type: Type.STRING, description: "Target account or convenio code" },
             amount: { type: Type.NUMBER, description: "Total amount" },
-            date: { type: Type.STRING, description: "YYYY-MM-DD" },
-            time: { type: Type.STRING, description: "HH:MM or HH:MM:SS" },
+            date: { type: Type.STRING, description: "YYYY-MM-DD format" },
+            time: { type: Type.STRING, description: "HH:MM format" },
             
-            // MÚLTIPLES NÚMEROS ÚNICOS - Extract ALL that are present
-            uniqueTransactionId: { type: Type.STRING, description: "Primary transaction ID (for backward compatibility)" },
-            rrn: { type: Type.STRING, description: "RRN number from Redeban receipts" },
-            recibo: { type: Type.STRING, description: "RECIBO number from Redeban receipts" },
-            apro: { type: Type.STRING, description: "APRO/Approval code from Redeban receipts" },
-            operacion: { type: Type.STRING, description: "Operación number from Banco Agrario or Bancolombia" },
-            comprobante: { type: Type.STRING, description: "Comprobante number from Bancolombia app" },
+            // Transaction IDs
+            uniqueTransactionId: { type: Type.STRING, description: "Primary transaction ID" },
+            rrn: { type: Type.STRING, description: "RRN number from Redeban" },
+            recibo: { type: Type.STRING, description: "RECIBO number" },
+            apro: { type: Type.STRING, description: "APRO/Approval code" },
+            operacion: { type: Type.STRING, description: "Operation number" },
+            comprobante: { type: Type.STRING, description: "Comprobante number" },
             
-            paymentReference: { type: Type.STRING, description: "Client Ref, Cedula, Ref 1" },
-            imageQualityScore: { type: Type.NUMBER, description: "0-100" },
+            // Client references
+            paymentReference: { type: Type.STRING, description: "Client Ref, Cedula, NIT" },
+            clientCode: { type: Type.STRING, description: "Client code (e.g., Cervunion code 10813353)" },
+            
+            // Confidence and quality
+            confidenceScore: { type: Type.NUMBER, description: "0-100 confidence in extracted numbers" },
+            hasAmbiguousNumbers: { type: Type.BOOLEAN, description: "True if any number might be misread" },
+            ambiguousFields: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of uncertain fields" },
+            
+            // Document type
+            isScreenshot: { type: Type.BOOLEAN, description: "True if app screenshot" },
+            hasPhysicalReceipt: { type: Type.BOOLEAN, description: "True if has physical receipt number (RRN/RECIBO/APRO)" },
+            
+            imageQualityScore: { type: Type.NUMBER, description: "0-100 image quality" },
             isReadable: { type: Type.BOOLEAN, description: "True if legible" },
-            rawText: { type: Type.STRING, description: "Extracted text snippets for debug" }
+            rawText: { type: Type.STRING, description: "Key extracted text for debug" }
           },
-          required: ["imageQualityScore", "isReadable", "amount"]
+          required: ["imageQualityScore", "isReadable", "amount", "confidenceScore", "hasAmbiguousNumbers", "isScreenshot", "hasPhysicalReceipt"]
         },
       },
     });
@@ -163,6 +185,12 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
     if (!resultText) throw new Error("No response from AI");
 
     const data = JSON.parse(resultText) as ExtractedData;
+    
+    // Ensure arrays are properly initialized
+    if (!data.ambiguousFields) {
+      data.ambiguousFields = [];
+    }
+    
     return data;
 
   } catch (error: any) {

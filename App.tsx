@@ -5,10 +5,11 @@ import { Stats } from './components/Stats';
 import { ConsignmentTable } from './components/ConsignmentTable';
 import { ImageModal } from './components/ImageModal';
 import { ConfigModal } from './components/ConfigModal';
+import { AuthorizationModal } from './components/AuthorizationModal';
 import { analyzeConsignmentImage } from './services/geminiService';
 import { sendToGoogleSheets, fetchHistoryFromSheets, fetchAccountsFromSheets, saveAccountsToSheets } from './services/sheetsService';
 import { ConsignmentRecord, ProcessingStatus, ValidationStatus, ExtractedData, ConfigItem } from './types';
-import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL } from './constants';
+import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL, CERVECERIA_UNION_CLIENT_CODE, CERVECERIA_UNION_KEYWORDS, MIN_CONFIDENCE_SCORE, ALLOWED_CREDIT_CARDS } from './constants';
 import { processImageFile } from './utils/imageCompression';
 
 const App: React.FC = () => {
@@ -37,6 +38,10 @@ const App: React.FC = () => {
 
   // Modal state
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  
+  // Authorization Modal state
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [recordToAuthorize, setRecordToAuthorize] = useState<string | null>(null);
 
   // 1. Load Config on Mount
   useEffect(() => {
@@ -208,7 +213,57 @@ const App: React.FC = () => {
     currentConvenios: ConfigItem[]
   ): { status: ValidationStatus, message: string } => {
 
-    // 1. Quality Check
+    // =====================================================
+    // 0. VALIDACIONES CRÍTICAS DE SEGURIDAD (PRIMERO)
+    // =====================================================
+
+    // 0-A. VERIFICAR FECHA (CRÍTICO - SIN FECHA = RECHAZO)
+    if (!data.date || data.date.trim() === '') {
+      return {
+        status: ValidationStatus.MISSING_DATE,
+        message: '⛔ RECHAZADO: Sin fecha visible. La fecha es obligatoria para validar el pago.'
+      };
+    }
+
+    // 0-B. VERIFICAR CONFIANZA DE LA IA EN LOS NÚMEROS
+    if (data.hasAmbiguousNumbers && data.ambiguousFields && data.ambiguousFields.length > 0) {
+      return {
+        status: ValidationStatus.LOW_CONFIDENCE,
+        message: `⚠️ RECHAZADO: Números no claros en: ${data.ambiguousFields.join(', ')}. Los números podrían estar mal leídos. Suba una imagen más clara.`
+      };
+    }
+
+    // 0-C. VERIFICAR SCORE DE CONFIANZA
+    if (data.confidenceScore !== undefined && data.confidenceScore < MIN_CONFIDENCE_SCORE) {
+      return {
+        status: ValidationStatus.LOW_CONFIDENCE,
+        message: `⚠️ RECHAZADO: Confianza baja (${data.confidenceScore}%). El sistema no puede verificar los números con certeza. Suba una imagen más clara.`
+      };
+    }
+
+    // 0-D. CAPTURAS DE PANTALLA SIN NÚMERO DE RECIBO = REQUIERE AUTORIZACIÓN
+    const hasPhysicalReceiptNumber = Boolean(data.rrn || data.recibo || data.apro);
+    const hasAnyTransactionId = Boolean(data.rrn || data.recibo || data.apro || data.operacion || data.comprobante || data.uniqueTransactionId);
+    
+    if (data.isScreenshot && !hasPhysicalReceiptNumber) {
+      // Es una captura de pantalla sin número de recibo físico
+      // Puede tener número de operación pero necesita autorización humana
+      if (!hasAnyTransactionId) {
+        return {
+          status: ValidationStatus.MISSING_RECEIPT_NUMBER,
+          message: '📱 REQUIERE AUTORIZACIÓN: Captura de pantalla sin número de recibo. Suba el certificado de autorización.'
+        };
+      }
+      // Tiene operación/comprobante pero no recibo físico - también necesita revisión
+      return {
+        status: ValidationStatus.REQUIRES_AUTHORIZATION,
+        message: '📱 REQUIERE AUTORIZACIÓN: Captura de app sin recibo físico. Suba documento de autorización para validar.'
+      };
+    }
+
+    // =====================================================
+    // 1. CALIDAD DE IMAGEN
+    // =====================================================
     if (!data.isReadable || data.imageQualityScore < MIN_QUALITY_SCORE) {
       return {
         status: ValidationStatus.LOW_QUALITY,
@@ -216,11 +271,12 @@ const App: React.FC = () => {
       };
     }
 
-    // 2. DUPLICATE CHECKING (EXHAUSTIVE - NO DUPLICATES ALLOWED)
+    // =====================================================
+    // 2. VERIFICACIÓN DE DUPLICADOS (EXHAUSTIVA)
+    // =====================================================
     const allRecords = [...existingRecords, ...sheetRecords];
 
-    // A-0. IMAGE HASH CHECK (Detect exact same image file)
-    // Si es exactamente la misma imagen -> duplicado inmediato
+    // 2-A. IMAGE HASH CHECK (Detect exact same image file)
     if (data.imageHash) {
       const sameImageDuplicate = allRecords.find(r =>
         r.imageHash && r.imageHash === data.imageHash
@@ -234,9 +290,7 @@ const App: React.FC = () => {
       }
     }
 
-    // A. MÚLTIPLES NÚMEROS DE APROBACIÓN - TODOS DEBEN SER ÚNICOS
-    // Validar CADA número único que esté presente (RRN, RECIBO, APRO, OPERACION, COMPROBANTE)
-
+    // 2-B. MÚLTIPLES NÚMEROS DE APROBACIÓN - TODOS DEBEN SER ÚNICOS
     const uniqueIds = [
       { field: 'RRN', value: data.rrn },
       { field: 'RECIBO', value: data.recibo },
@@ -247,28 +301,18 @@ const App: React.FC = () => {
     ];
 
     for (const idEntry of uniqueIds) {
-      if (!idEntry.value || idEntry.value.trim().length === 0) continue;
+      if (!idEntry.value || String(idEntry.value).trim().length === 0) continue;
 
-      const rawNewId = idEntry.value.trim();
+      const rawNewId = String(idEntry.value).trim();
       const fieldName = idEntry.field;
 
-      // NIVEL 1: Verificación EXACTA contra TODOS los campos de IDs en registros existentes
+      // NIVEL 1: Verificación EXACTA
       const exactDuplicate = allRecords.find(r => {
-        // Comparar contra TODOS los posibles campos de ID
-        const existingIds = [
-          r.rrn,
-          r.recibo,
-          r.apro,
-          r.operacion,
-          r.comprobante,
-          r.uniqueTransactionId
-        ];
-
+        const existingIds = [r.rrn, r.recibo, r.apro, r.operacion, r.comprobante, r.uniqueTransactionId];
         return existingIds.some(existingId => {
-          if (!existingId || typeof existingId !== 'string') return false;
+          if (!existingId) return false;
           const rawExisting = String(existingId).trim();
           if (rawExisting.length === 0) return false;
-          // Comparación case-insensitive
           return rawExisting.toLowerCase() === rawNewId.toLowerCase();
         });
       });
@@ -280,23 +324,13 @@ const App: React.FC = () => {
         };
       }
 
-      // NIVEL 2: Verificación NUMÉRICA (solo dígitos, para detectar variaciones de formato)
+      // NIVEL 2: Verificación NUMÉRICA
       const normalizedNew = rawNewId.replace(/\D/g, '');
-
       if (normalizedNew.length >= 4) {
         const numericDuplicate = allRecords.find(r => {
-          const existingIds = [
-            r.rrn,
-            r.recibo,
-            r.apro,
-            r.operacion,
-            r.comprobante,
-            r.uniqueTransactionId
-          ];
-
+          const existingIds = [r.rrn, r.recibo, r.apro, r.operacion, r.comprobante, r.uniqueTransactionId];
           return existingIds.some(existingId => {
             if (!existingId) return false;
-            // Convertir a string para evitar error si viene como número de Google Sheets
             const normalizedExisting = String(existingId).replace(/\D/g, '');
             return normalizedExisting.length >= 4 && normalizedExisting === normalizedNew;
           });
@@ -311,113 +345,69 @@ const App: React.FC = () => {
       }
     }
 
-    // B. EXACT AMOUNT + DATE + TIME CHECK (For receipts with timestamp)
-    // SOLO aplicar si NO hay números únicos disponibles
-    // Si el recibo tiene RRN/RECIBO/APRO/etc., esos son suficientes para identificarlo
+    // 2-C. Validación heurística si no hay IDs únicos
     const hasUniqueIds = Boolean(
       data.rrn || data.recibo || data.apro || data.operacion || data.comprobante || data.uniqueTransactionId
     );
 
     if (!hasUniqueIds) {
-      // Solo validar por heurística si no tiene números únicos
       const exactTimeDuplicate = allRecords.find(r => {
         const exactAmount = r.amount === data.amount;
         const sameDate = r.date === data.date;
         const sameTime = r.time && data.time && r.time.substring(0, 5) === data.time.substring(0, 5);
-
-        if (exactAmount && sameDate && sameTime) return true;
-
-        return false;
+        return exactAmount && sameDate && sameTime;
       });
 
       if (exactTimeDuplicate) {
         return {
           status: ValidationStatus.DUPLICATE,
-          message: `Duplicado: Monto exacto ($${data.amount}), fecha (${data.date}) y hora (${data.time})`
+          message: `Duplicado: Monto ($${data.amount}), fecha (${data.date}) y hora (${data.time})`
         };
       }
-    }
 
-    // C, D, E: VALIDACIONES HEURÍSTICAS
-    // SOLO aplicar si NO hay números únicos disponibles
-    // Si tiene RRN/RECIBO/APRO/OPERACION/COMPROBANTE, esos identificadores son definitivos
-
-    if (!hasUniqueIds) {
-      // C. EXACT AMOUNT + DATE + BANK + CLIENT REFERENCE CHECK
+      // Verificación por monto + fecha + banco + referencia
       const exactRefDuplicate = allRecords.find(r => {
         const exactAmount = r.amount === data.amount;
         const sameDate = r.date === data.date;
         const sameBank = r.bankName && data.bankName &&
           normalizeAccount(r.bankName) === normalizeAccount(data.bankName);
-
         const ref1 = r.paymentReference ? normalizeAccount(r.paymentReference) : '';
         const ref2 = data.paymentReference ? normalizeAccount(data.paymentReference) : '';
         const sameClientRef = ref1.length > 3 && ref2.length > 3 && ref1 === ref2;
-
-        if (exactAmount && sameDate && sameBank && sameClientRef) return true;
-        return false;
+        return exactAmount && sameDate && sameBank && sameClientRef;
       });
 
       if (exactRefDuplicate) {
         return {
           status: ValidationStatus.DUPLICATE,
-          message: `Duplicado: Monto exacto ($${data.amount}), fecha, banco y referencia de cliente`
+          message: `Duplicado: Monto ($${data.amount}), fecha, banco y referencia de cliente`
         };
-      }
-
-      // D. EXACT AMOUNT + DATE + ACCOUNT/CONVENIO + CLIENT REFERENCE
-      const exactAccountDuplicate = allRecords.find(r => {
-        const exactAmount = r.amount === data.amount;
-        const sameDate = r.date === data.date;
-
-        const acc1 = normalizeAccount(r.accountOrConvenio || '');
-        const acc2 = normalizeAccount(data.accountOrConvenio || '');
-        const sameAccount = acc1.length > 3 && acc2.length > 3 && acc1 === acc2;
-
-        const ref1 = r.paymentReference ? normalizeAccount(r.paymentReference) : '';
-        const ref2 = data.paymentReference ? normalizeAccount(data.paymentReference) : '';
-        const sameClientRef = ref1.length > 3 && ref2.length > 3 && ref1 === ref2;
-
-        if (exactAmount && sameDate && sameAccount && sameClientRef) return true;
-        return false;
-      });
-
-      if (exactAccountDuplicate) {
-        return {
-          status: ValidationStatus.DUPLICATE,
-          message: `Duplicado: Monto exacto ($${data.amount}), fecha, cuenta/convenio y cliente`
-        };
-      }
-
-      // E. FALLBACK: EXACT AMOUNT + DATE (solo para montos grandes sin otros identificadores)
-      if (data.amount >= 100000) {
-        const hasNoTime = !data.time || data.time === '';
-        const hasNoRef = !data.paymentReference || data.paymentReference === '';
-
-        if (hasNoTime && hasNoRef) {
-          const suspiciousDuplicate = allRecords.find(r => {
-            const exactAmount = r.amount === data.amount;
-            const sameDate = r.date === data.date;
-            const sameBank = r.bankName && data.bankName &&
-              normalizeAccount(r.bankName) === normalizeAccount(data.bankName);
-
-            return exactAmount && sameDate && sameBank;
-          });
-
-          if (suspiciousDuplicate) {
-            return {
-              status: ValidationStatus.DUPLICATE,
-              message: `Posible duplicado: Monto alto ($${data.amount}) y fecha coinciden. Verifique manualmente.`
-            };
-          }
-        }
       }
     }
 
-    // 3. ACCOUNT/CONVENIO CHECK
+    // =====================================================
+    // 3. VALIDACIÓN DE CUENTA/CONVENIO
+    // =====================================================
     let extractedAcc = normalizeAccount(data.accountOrConvenio || '');
     const validAccountValues = currentAccounts.map(item => normalizeAccount(item.value));
     const validConvenioValues = currentConvenios.map(item => normalizeAccount(item.value));
+
+    // Verificar si es pago con tarjeta de crédito autorizada
+    const rawText = data.rawText?.toLowerCase() || '';
+    const isCreditCardPayment = ALLOWED_CREDIT_CARDS.some(card => 
+      rawText.includes(card) || rawText.includes(`****${card}`) || rawText.includes(`*${card}`)
+    );
+
+    // Verificar si es pago a Cervecería Unión
+    const isCerveceriaUnion = CERVECERIA_UNION_KEYWORDS.some(keyword => 
+      rawText.includes(keyword.toLowerCase())
+    );
+
+    // Si es Cervecería Unión, el código cliente debe ser 10813353
+    if (isCerveceriaUnion && data.clientCode !== CERVECERIA_UNION_CLIENT_CODE) {
+      // Auto-asignar el código si no lo detectó
+      data.clientCode = CERVECERIA_UNION_CLIENT_CODE;
+    }
 
     if (!extractedAcc && data.paymentReference) {
       const possibleAccountInRef = currentAccounts.find(accItem =>
@@ -432,7 +422,8 @@ const App: React.FC = () => {
     const isConvenioValid = validConvenioValues.includes(extractedAcc);
     const isRefValid = COMMON_REFERENCES.some(ref => normalizeAccount(ref) === extractedAcc);
 
-    if (!isAccountValid && !isConvenioValid && !isRefValid) {
+    // Permitir si es tarjeta autorizada o Cervecería Unión
+    if (!isAccountValid && !isConvenioValid && !isRefValid && !isCreditCardPayment && !isCerveceriaUnion) {
       const relaxedMatch = [...currentAccounts, ...currentConvenios].some(item => {
         const normAllowed = normalizeAccount(item.value);
         return extractedAcc.includes(normAllowed) || (data.rawText && data.rawText.replace(/\s/g, '').includes(normAllowed));
@@ -469,12 +460,24 @@ const App: React.FC = () => {
               statusMessage: compressionResult.error || "Error al procesar imagen",
               createdAt: Date.now(),
               bankName: 'Error',
+              city: null,
               amount: 0,
               date: '',
               time: null,
               uniqueTransactionId: null,
+              rrn: null,
+              recibo: null,
+              apro: null,
+              operacion: null,
+              comprobante: null,
               paymentReference: null,
+              clientCode: null,
               accountOrConvenio: '',
+              confidenceScore: 0,
+              hasAmbiguousNumbers: false,
+              ambiguousFields: [],
+              isScreenshot: false,
+              hasPhysicalReceipt: false,
               imageQualityScore: 0,
               isReadable: false,
               rawText: ''
@@ -507,12 +510,24 @@ const App: React.FC = () => {
               statusMessage: err?.message || "Error lectura IA",
               createdAt: Date.now(),
               bankName: 'Error',
+              city: null,
               amount: 0,
               date: '',
               time: null,
               uniqueTransactionId: null,
+              rrn: null,
+              recibo: null,
+              apro: null,
+              operacion: null,
+              comprobante: null,
               paymentReference: null,
+              clientCode: null,
               accountOrConvenio: '',
+              confidenceScore: 0,
+              hasAmbiguousNumbers: false,
+              ambiguousFields: [],
+              isScreenshot: false,
+              hasPhysicalReceipt: false,
               imageQualityScore: 0,
               isReadable: false,
               rawText: ''
@@ -527,12 +542,24 @@ const App: React.FC = () => {
             statusMessage: error?.message || "Error inesperado al procesar imagen",
             createdAt: Date.now(),
             bankName: 'Error',
+            city: null,
             amount: 0,
             date: '',
             time: null,
             uniqueTransactionId: null,
+            rrn: null,
+            recibo: null,
+            apro: null,
+            operacion: null,
+            comprobante: null,
             paymentReference: null,
+            clientCode: null,
             accountOrConvenio: '',
+            confidenceScore: 0,
+            hasAmbiguousNumbers: false,
+            ambiguousFields: [],
+            isScreenshot: false,
+            hasPhysicalReceipt: false,
             imageQualityScore: 0,
             isReadable: false,
             rawText: ''
@@ -618,6 +645,40 @@ const App: React.FC = () => {
 
   const handleDelete = (id: string) => {
     setLocalRecords(prev => prev.filter(r => r.id !== id));
+  };
+
+  // Handle authorization request
+  const handleAuthorizeRequest = (id: string) => {
+    setRecordToAuthorize(id);
+    setAuthModalOpen(true);
+  };
+
+  // Handle authorization submission
+  const handleAuthorizeSubmit = (authData: { imageUrl: string; authorizedBy: string }) => {
+    if (!recordToAuthorize) return;
+
+    setLocalRecords(prev => prev.map(record => {
+      if (record.id === recordToAuthorize) {
+        return {
+          ...record,
+          status: ValidationStatus.VALID,
+          statusMessage: `✓ Autorizado manualmente por ${authData.authorizedBy}`,
+          authorizationUrl: authData.imageUrl,
+          authorizedBy: authData.authorizedBy,
+          authorizedAt: Date.now()
+        };
+      }
+      return record;
+    }));
+
+    setRecordToAuthorize(null);
+    setAuthModalOpen(false);
+  };
+
+  // Get record to authorize for modal
+  const getRecordToAuthorize = () => {
+    if (!recordToAuthorize) return null;
+    return localRecords.find(r => r.id === recordToAuthorize);
   };
 
   // Determine what to show
@@ -722,6 +783,7 @@ const App: React.FC = () => {
               records={displayedRecords}
               onDelete={activeTab === 'UPLOAD' ? handleDelete : () => { }}
               onViewImage={(url) => setSelectedImage(url)}
+              onAuthorize={activeTab === 'UPLOAD' ? handleAuthorizeRequest : undefined}
             />
           </div>
         </div>
@@ -743,6 +805,17 @@ const App: React.FC = () => {
         onResetDefaults={handleResetDefaults}
         onSyncToSheets={syncAccountsToSheets}
         onLoadFromSheets={() => loadAccountsFromSheets(scriptUrl)}
+      />
+
+      <AuthorizationModal
+        isOpen={authModalOpen}
+        onClose={() => {
+          setAuthModalOpen(false);
+          setRecordToAuthorize(null);
+        }}
+        onAuthorize={handleAuthorizeSubmit}
+        recordAmount={getRecordToAuthorize()?.amount}
+        recordDate={getRecordToAuthorize()?.date}
       />
     </div>
   );
