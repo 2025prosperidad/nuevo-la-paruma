@@ -37,11 +37,29 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
 
     ⚠️ CRITICAL EXTRACTION RULES - READ CAREFULLY:
     
-    🔒 SEGURIDAD ANTI-FRAUDE:
-    - Si un número NO se ve CLARAMENTE, marca hasAmbiguousNumbers=true y agrega el campo a ambiguousFields
-    - Si hay caracteres borrosos o que podrían confundirse (3/8, 1/7, 0/O, 5/S), reporta incertidumbre
-    - NUNCA adivines números. Si no estás 100% seguro, es mejor reportar baja confianza
-    - El confidenceScore debe reflejar qué tan SEGURO estás de TODOS los números extraídos
+    🔒 SEGURIDAD ANTI-FRAUDE - MÁXIMA PRIORIDAD:
+    
+    ⛔ REGLA DE ORO: ES MEJOR RECHAZAR UN RECIBO BUENO QUE APROBAR UNO CON NÚMEROS INCORRECTOS
+    
+    CONFUSIONES COMUNES QUE DEBES DETECTAR:
+    - 3 ↔ 8 (MUY COMÚN en impresiones térmicas)
+    - 1 ↔ 7
+    - 0 ↔ O ↔ 8
+    - 5 ↔ S ↔ 6
+    - 6 ↔ 8 ↔ 0
+    - 2 ↔ Z
+    
+    INSTRUCCIONES ESTRICTAS:
+    1. Si la imagen está BORROSA o tiene mala calidad → imageQualityScore < 50, isReadable=false
+    2. Si CUALQUIER dígito de un número de transacción no se ve 100% claro → hasAmbiguousNumbers=true
+    3. Si hay CUALQUIER posibilidad de confusión entre dígitos similares → confidenceScore < 80
+    4. NUNCA ADIVINES. Si tienes la más mínima duda, reporta ambiguousFields con ese campo
+    5. En papel térmico arrugado/borroso, SIEMPRE baja el confidenceScore significativamente
+    
+    EJEMPLOS DE RECHAZO OBLIGATORIO:
+    - Número "292652588" pero el 8 final podría ser 3 → hasAmbiguousNumbers=true, ambiguousFields=["operacion"]
+    - Recibo Redeban muy borroso donde no se leen bien los números → imageQualityScore=40, isReadable=false
+    - Cualquier dígito con tinta corrida o manchada → confidenceScore < 70
     
     1. **🔑 MÚLTIPLES NÚMEROS ÚNICOS (ABSOLUTELY CRITICAL)**:
        ⛔ CADA UNO ES ÚNICO Y NUNCA SE PUEDE REPETIR
@@ -120,22 +138,33 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
        - "$ 1.000.000,00" → 1000000
        - "$120,000,000.00" → 120000000
     
-    8. **🎯 CONFIDENCE SCORE (0-100)**:
-       - 95-100: All numbers crystal clear, no ambiguity
-       - 80-94: Minor blur but confident in reading
-       - 60-79: Some characters unclear, possible errors
-       - 0-59: Significant uncertainty, numbers may be wrong
+    8. **🎯 CONFIDENCE SCORE (0-100) - SÉ ESTRICTO**:
+       - 95-100: SOLO si TODOS los números son 100% claros, papel perfecto, sin ninguna duda
+       - 85-94: Números claros pero papel ligeramente arrugado
+       - 70-84: Algunos caracteres con leve borrosidad - DEBE REPORTAR ambiguousFields
+       - 50-69: Caracteres borrosos o confusos - DEBE RECHAZARSE
+       - 0-49: Ilegible o muy mala calidad - RECHAZO INMEDIATO
        
-       REDUCE confidence if:
-       - Paper is wrinkled or torn
-       - Numbers are partially obscured
-       - Print quality is poor
-       - Similar characters that could be confused (3/8, 1/7, 0/O)
+       ⚠️ BAJA EL SCORE AGRESIVAMENTE SI:
+       - Papel térmico arrugado o doblado → máximo 80
+       - Cualquier número con posible confusión 3/8/0/6 → máximo 75
+       - Imagen borrosa o desenfocada → máximo 60
+       - Tinta corrida o manchada → máximo 50
+       - Si tienes que "adivinar" algún dígito → máximo 65
 
-    9. **🚫 AMBIGUOUS NUMBERS**:
-       - hasAmbiguousNumbers=true if ANY number might be misread
-       - ambiguousFields: List which fields have uncertain readings
-       - Example: If "33" could be "88", ambiguousFields=["operacion"]
+    9. **🚫 AMBIGUOUS NUMBERS - OBLIGATORIO REPORTAR**:
+       - hasAmbiguousNumbers=true si hay CUALQUIER duda en CUALQUIER número
+       - ambiguousFields: LISTA TODOS los campos donde hay incertidumbre
+       
+       EJEMPLOS OBLIGATORIOS DE REPORTE:
+       - Número termina en algo que podría ser 3 u 8 → ambiguousFields=["operacion"]
+       - RRN borroso → ambiguousFields=["rrn"]
+       - Múltiples campos dudosos → ambiguousFields=["operacion", "rrn", "recibo"]
+       
+       ⛔ Si la imagen de Redeban está borrosa/desenfocada:
+       - imageQualityScore debe ser < 60
+       - isReadable debe ser false
+       - hasAmbiguousNumbers debe ser true
 
     Return strictly JSON with all extracted data.
   `;

@@ -87,7 +87,11 @@ export const CERVECERIA_UNION_KEYWORDS = [
 ];
 
 // Umbral mínimo de confianza de la IA para aprobar automáticamente
-export const MIN_CONFIDENCE_SCORE = 85;
+// ESTRICTO: Si la IA no está 90% segura, se rechaza
+export const MIN_CONFIDENCE_SCORE = 90;
+
+// Umbral de calidad mínima para recibos térmicos (Redeban, etc.)
+export const MIN_THERMAL_QUALITY_SCORE = 65;
 
 // Campos críticos que NO pueden tener errores
 export const CRITICAL_FIELDS = ['amount', 'date', 'uniqueTransactionId', 'rrn', 'recibo', 'apro', 'operacion'];
