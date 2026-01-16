@@ -37,6 +37,10 @@ export interface ExtractedData {
   paymentReference: string | null; // Client ID, Cedula, Ref 1 (CAN BE REPEATED)
   clientCode: string | null; // Código cliente Cervunión (10813353)
   
+  // TARJETA DE CRÉDITO
+  creditCardLast4?: string | null; // Últimos 4 dígitos de tarjeta de crédito
+  isCreditCardPayment?: boolean; // Si el pago fue con tarjeta de crédito
+  
   // CONFIANZA DE LA IA
   confidenceScore: number; // 0-100 - Qué tan segura está la IA de los números extraídos
   hasAmbiguousNumbers: boolean; // Si hay números que podrían estar mal leídos

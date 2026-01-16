@@ -198,28 +198,53 @@ const singleAnalysis = async (base64Image: string, mimeType: string, attemptNumb
        - REF: 749805890937257
        → paymentReference = "10813353" ✅ (NO "749805890937257")
     
-    4. **📱 SCREENSHOT VS PHYSICAL RECEIPT**:
+    4. **💳 PAGOS CON TARJETA DE CRÉDITO (IMPORTANTE)**:
+       Si el recibo muestra "TARJETA DE CREDITO" con números enmascarados:
+       - "TARJETA DE CREDITO: ************4998"
+       - "TARJETA: **** **** **** 4998"
+       
+       **EXTRAER:**
+       - creditCardLast4 = últimos 4 dígitos de la tarjeta (ej: "4998")
+       - paymentReference = últimos 4 dígitos de la tarjeta (ej: "4998")
+       - isCreditCardPayment = true
+       
+       **⚠️ NO CONFUNDIR con:**
+       - C.UNICO: Este es el código único del corresponsal, NO la referencia de pago
+       - El C.UNICO (ej: 3007012166) NO debe usarse como accountOrConvenio
+       
+       **EJEMPLO PAGO CON TARJETA:**
+       - "PAGO"
+       - "TARJETA DE CREDITO: ************4998"
+       - "C.UNICO: 3007012166"
+       
+       Extracción correcta:
+       - paymentReference = "4998" (últimos 4 dígitos tarjeta)
+       - creditCardLast4 = "4998"
+       - isCreditCardPayment = true
+       - accountOrConvenio = "" (no hay cuenta/convenio, es pago con tarjeta)
+    
+    5. **📱 SCREENSHOT VS PHYSICAL RECEIPT**:
        - isScreenshot=true if: App screenshot, phone status bar visible, Nequi purple background
        - isScreenshot=false if: Thermal paper, physical printer output
        - hasPhysicalReceipt=true ONLY if there's a RECIBO/RRN/APRO number (Redeban style)
        - Screenshots from Bancolombia App usually have "Comprobante" but NO physical receipt number
     
-    5. **📅 DATE (CRITICAL - REJECT IF MISSING)**:
+    6. **📅 DATE (CRITICAL - REJECT IF MISSING)**:
        - Extract date in YYYY-MM-DD format
        - Handle text months: "27 Dic 2025" → "2025-12-27"
        - Spanish months: ENE=01, FEB=02, MAR=03, ABR=04, MAY=05, JUN=06, JUL=07, AGO=08, SEP=09, OCT=10, NOV=11, DIC=12
        - ⚠️ If NO date visible, return empty string - this will be REJECTED
     
-    6. **⏰ TIME**:
+    7. **⏰ TIME**:
        - Extract time in HH:MM format
        - Normalize to 24h format
     
-    7. **💵 AMOUNT**:
+    8. **💵 AMOUNT**:
        - Extract total amount as NUMBER (no currency symbol)
        - "$ 1.000.000,00" → 1000000
        - "$120,000,000.00" → 120000000
     
-    8. **🎯 CONFIDENCE SCORE (0-100) - SÉ ESTRICTO**:
+    9. **🎯 CONFIDENCE SCORE (0-100) - SÉ ESTRICTO**:
        - 95-100: SOLO si TODOS los números son 100% claros, papel perfecto, sin ninguna duda
        - 85-94: Números claros pero papel ligeramente arrugado
        - 70-84: Algunos caracteres con leve borrosidad - DEBE REPORTAR ambiguousFields
@@ -233,7 +258,7 @@ const singleAnalysis = async (base64Image: string, mimeType: string, attemptNumb
        - Tinta corrida o manchada → máximo 50
        - Si tienes que "adivinar" algún dígito → máximo 65
 
-    9. **🚫 AMBIGUOUS NUMBERS - OBLIGATORIO REPORTAR**:
+    10. **🚫 AMBIGUOUS NUMBERS - OBLIGATORIO REPORTAR**:
        - hasAmbiguousNumbers=true si hay CUALQUIER duda en CUALQUIER número
        - ambiguousFields: LISTA TODOS los campos donde hay incertidumbre
        
@@ -285,8 +310,12 @@ const singleAnalysis = async (base64Image: string, mimeType: string, attemptNumb
             comprobante: { type: Type.STRING, description: "Comprobante number" },
             
             // Client references
-            paymentReference: { type: Type.STRING, description: "Client Ref, Cedula, NIT" },
+            paymentReference: { type: Type.STRING, description: "Client Ref, Cedula, NIT, or last 4 digits of credit card" },
             clientCode: { type: Type.STRING, description: "Client code (e.g., Cervunion code 10813353)" },
+            
+            // Credit card payment
+            creditCardLast4: { type: Type.STRING, description: "Last 4 digits of credit card if payment is by card" },
+            isCreditCardPayment: { type: Type.BOOLEAN, description: "True if payment was made with credit card" },
             
             // Confidence and quality
             confidenceScore: { type: Type.NUMBER, description: "0-100 confidence in extracted numbers" },

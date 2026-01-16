@@ -397,9 +397,38 @@ const App: React.FC = () => {
 
     // Verificar si es pago con tarjeta de crédito autorizada
     const rawText = data.rawText?.toLowerCase() || '';
-    const isCreditCardPayment = ALLOWED_CREDIT_CARDS.some(card =>
-      rawText.includes(card) || rawText.includes(`****${card}`) || rawText.includes(`*${card}`)
-    );
+    
+    // Detectar tarjeta autorizada por múltiples métodos:
+    // 1. Por el campo isCreditCardPayment de Gemini
+    // 2. Por creditCardLast4 de Gemini
+    // 3. Por búsqueda en rawText
+    let detectedCardLast4: string | null = null;
+    
+    // Método 1: Gemini detectó tarjeta
+    if (data.isCreditCardPayment && data.creditCardLast4) {
+      detectedCardLast4 = data.creditCardLast4;
+    }
+    
+    // Método 2: Buscar en rawText los últimos 4 dígitos
+    if (!detectedCardLast4) {
+      for (const card of ALLOWED_CREDIT_CARDS) {
+        if (rawText.includes(card) || rawText.includes(`****${card}`) || rawText.includes(`*${card}`)) {
+          detectedCardLast4 = card;
+          break;
+        }
+      }
+    }
+    
+    const isCreditCardPayment = detectedCardLast4 !== null && 
+      ALLOWED_CREDIT_CARDS.includes(detectedCardLast4);
+    
+    // Si es pago con tarjeta, usar los últimos 4 dígitos como referencia
+    if (isCreditCardPayment && detectedCardLast4) {
+      console.log(`💳 Pago con tarjeta detectado: ****${detectedCardLast4}`);
+      data.paymentReference = detectedCardLast4;
+      data.creditCardLast4 = detectedCardLast4;
+      data.isCreditCardPayment = true;
+    }
 
     // Verificar si es pago a Cervecería Unión por MÚLTIPLES MÉTODOS:
     // 1. Por palabras clave en el texto
@@ -426,14 +455,14 @@ const App: React.FC = () => {
       // Auto-asignar el código si no lo detectó
       data.clientCode = CERVECERIA_UNION_CLIENT_CODE;
     }
-    
+
     // Si es Cervecería Unión y la referencia es un número interno del banco, reemplazarla
     if (isCerveceriaUnion && data.paymentReference) {
       const normalizedRef = normalizeAccount(data.paymentReference);
       const isInternalRef = CERVECERIA_UNION_INTERNAL_REFS.some(
         internalRef => normalizeAccount(internalRef) === normalizedRef
       );
-      
+
       if (isInternalRef) {
         console.log(`🔄 Reemplazando referencia interna ${data.paymentReference} por código cliente ${CERVECERIA_UNION_CLIENT_CODE}`);
         data.paymentReference = CERVECERIA_UNION_CLIENT_CODE;
