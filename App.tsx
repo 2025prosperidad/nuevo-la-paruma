@@ -397,18 +397,18 @@ const App: React.FC = () => {
 
     // Verificar si es pago con tarjeta de crédito autorizada
     const rawText = data.rawText?.toLowerCase() || '';
-    
+
     // Detectar tarjeta autorizada por múltiples métodos:
     // 1. Por el campo isCreditCardPayment de Gemini
     // 2. Por creditCardLast4 de Gemini
     // 3. Por búsqueda en rawText
     let detectedCardLast4: string | null = null;
-    
+
     // Método 1: Gemini detectó tarjeta
     if (data.isCreditCardPayment && data.creditCardLast4) {
       detectedCardLast4 = data.creditCardLast4;
     }
-    
+
     // Método 2: Buscar en rawText los últimos 4 dígitos
     if (!detectedCardLast4) {
       for (const card of ALLOWED_CREDIT_CARDS) {
@@ -418,10 +418,10 @@ const App: React.FC = () => {
         }
       }
     }
-    
-    const isCreditCardPayment = detectedCardLast4 !== null && 
+
+    const isCreditCardPayment = detectedCardLast4 !== null &&
       ALLOWED_CREDIT_CARDS.includes(detectedCardLast4);
-    
+
     // Si es pago con tarjeta, usar los últimos 4 dígitos como referencia
     if (isCreditCardPayment && detectedCardLast4) {
       console.log(`💳 Pago con tarjeta detectado: ****${detectedCardLast4}`);

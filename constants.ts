@@ -68,6 +68,8 @@ export const CERVECERIA_UNION_CLIENT_CODE = '10813353';
 export const KNOWN_CLIENTS: Record<string, string> = {
   '10813353': 'La Paruma - Cervecería Unión',
   '13937684': 'Cliente Cervecería Unión',
+  // Tarjetas de crédito autorizadas
+  '4998': '💳 Tarjeta de Crédito Autorizada',
 };
 
 // Referencias internas del banco que deben reemplazarse por el código de cliente real
