@@ -92,49 +92,11 @@ const singleAnalysis = async (base64Image: string, mimeType: string, attemptNumb
        - If unclear, mark confidenceScore LOW and hasAmbiguousNumbers=true
        - Put the most prominent ID in uniqueTransactionId for backward compatibility
     
-    2. **🏦 BANCO Y CIUDAD (BÚSQUEDA EXHAUSTIVA)**:
-       - Extract bank name: "Bancolombia", "Banco Agrario", "Nequi", "Davivienda", "Redeban", etc.
-       
-       **BÚSQUEDA DE UBICACIÓN - ORDEN DE PRIORIDAD:**
-       
-       A) **Buscar campo explícito de ciudad:**
-          - "Ciudad:", "CIUDAD:", "City:"
-          - Ejemplo: "Ciudad: APARTADO" → city="APARTADÓ"
-       
-       B) **Si no hay ciudad explícita, buscar en SUCURSAL/OFICINA:**
-          - "Sucursal: 549 - PLAZA DEL RIO" → Buscar qué ciudad tiene Plaza del Río
-          - "Oficina: REVAL SANTAFE DE ANTIO" → city="SANTA FE DE ANTIOQUIA"
-          - "CORRESPONSAL BANCOLOMBIA" + dirección → extraer ciudad de la dirección
-       
-       C) **Buscar direcciones con ciudad:**
-          - "CARRERA 9A NO 8 4" + contexto → buscar ciudad
-          - Si hay departamento mencionado, usar para identificar
-       
-       D) **CENTROS COMERCIALES Y LUGARES CONOCIDOS DE COLOMBIA:**
-          - "PLAZA DEL RIO" → APARTADÓ (Antioquia)
-          - "SANTAFE" en Antioquia → SANTA FE DE ANTIOQUIA
-          - "UNICENTRO" → Depende del contexto (Bogotá, Medellín, Cali, etc.)
-          - "MAYORCA" → SABANETA (Antioquia)
-          - "OVIEDO" → MEDELLÍN
-          - "GRAN ESTACIÓN" → BOGOTÁ
-          - "CHIPICHAPE" → CALI
-          - "BUENAVISTA" → BARRANQUILLA
-          - "PORTAL DEL QUINDÍO" → ARMENIA
-       
-       E) **CÓDIGOS DE SUCURSAL conocidos (Bancolombia):**
-          - Sucursal 549 = APARTADÓ
-          - Si conoces el código, indica la ciudad
-       
-       F) **Si no se encuentra ubicación:**
-          - Dejar city="" o city=null
-          - NO inventar ciudades
-       
-       **NORMALIZACIÓN DE NOMBRES:**
-       - "APARTADO" → "APARTADÓ"
-       - "MEDELLIN" → "MEDELLÍN"  
-       - "BOGOTA" → "BOGOTÁ"
-       - "SANTAFE DE ANTIOQUIA" → "SANTA FE DE ANTIOQUIA"
-       - Usar tildes correctas en español
+    2. **🏦 BANCO Y CIUDAD**:
+       - Extract bank name: "Bancolombia", "Banco Agrario", "Nequi", "Davivienda", etc.
+       - Look for "Sucursal:", "Ciudad:", "Oficina:" for location
+       - Example: "Sucursal: 549 - PLAZA DEL RIO, Ciudad: APARTADO" → city="APARTADO"
+       - If multiple cities mentioned, use the one most clearly marked
     
     2B. **💳 CUENTA DESTINO vs REFERENCIA DE PAGO (MUY IMPORTANTE)**:
        
