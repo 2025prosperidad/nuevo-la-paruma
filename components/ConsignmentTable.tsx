@@ -1,6 +1,6 @@
 import React from 'react';
 import { ConsignmentRecord, ValidationStatus, ConfigItem } from '../types';
-import { CERVECERIA_UNION_CLIENT_CODE, normalizeAccount } from '../constants';
+import { CERVECERIA_UNION_CLIENT_CODE, normalizeAccount, KNOWN_CLIENTS } from '../constants';
 
 interface ConsignmentTableProps {
   records: ConsignmentRecord[];
@@ -194,24 +194,31 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                 </td>
                 <td className="px-4 py-3">
                   {(() => {
-                    const refInfo = getAccountLabel(record.paymentReference);
-                    if (!refInfo) return <span className="text-gray-400">-</span>;
+                    const ref = record.paymentReference;
+                    if (!ref) return <span className="text-gray-400">-</span>;
+                    
+                    // Buscar si es un cliente conocido
+                    const normalizedRef = normalizeAccount(ref);
+                    const knownClientName = Object.entries(KNOWN_CLIENTS).find(
+                      ([code]) => normalizeAccount(code) === normalizedRef
+                    )?.[1];
+                    
+                    // Buscar etiqueta de cuenta si no es cliente conocido
+                    const refInfo = getAccountLabel(ref);
                     
                     return (
                       <div>
-                        <div className="font-mono text-gray-900 font-medium">{refInfo.number}</div>
-                        {refInfo.label && (
+                        <div className="font-mono text-gray-900 font-medium">{ref}</div>
+                        {knownClientName ? (
+                          <div className="text-xs text-amber-600 font-medium mt-0.5">
+                            🍺 {knownClientName}
+                          </div>
+                        ) : refInfo?.label && (
                           <div className="text-xs text-green-600 mt-0.5">{refInfo.label}</div>
                         )}
                       </div>
                     );
                   })()}
-                  {/* Mostrar código cliente Cervecería Unión si aplica */}
-                  {record.clientCode === CERVECERIA_UNION_CLIENT_CODE && (
-                    <div className="text-xs text-amber-600 font-medium mt-1">
-                      🍺 Cervunión: {record.clientCode}
-                    </div>
-                  )}
                 </td>
                 <td className="px-4 py-3 text-xs max-w-[200px]">
                   {/* Mostrar Banco + Ciudad */}

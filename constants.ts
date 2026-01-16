@@ -58,11 +58,17 @@ export const ALLOWED_CONVENIOS = [
 
 export const COMMON_REFERENCES = [
   '10813353',  // Código Cervecería Unión - Cliente La Paruma
-  '13937684'   // Cliente frecuente (visto en múltiples recibos)
+  '13937684'   // Cliente Cervecería Unión (otro cliente)
 ];
 
 // Código de cliente de Cervecería Unión para La Paruma
 export const CERVECERIA_UNION_CLIENT_CODE = '10813353';
+
+// Mapa de clientes conocidos (referencia → nombre)
+export const KNOWN_CLIENTS: Record<string, string> = {
+  '10813353': 'La Paruma - Cervecería Unión',
+  '13937684': 'Cliente Cervecería Unión',
+};
 
 // Convenios que corresponden a Cervecería Unión
 export const CERVECERIA_UNION_CONVENIOS = [

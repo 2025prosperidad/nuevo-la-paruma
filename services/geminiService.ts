@@ -149,6 +149,22 @@ const singleAnalysis = async (base64Image: string, mimeType: string, attemptNumb
        **EJEMPLO RECAUDO/CONVENIO:**
        - "Convenio: 32137" → accountOrConvenio="32137"
        - "Codigo cliente cervunion: 10813353" → paymentReference="10813353"
+       
+       **EJEMPLO BANCO AGRARIO - RECAUDO DE CONVENIOS:**
+       Formato típico:
+       - "Convenio: 18129 WS - CERVECERIA UNION S.A - RM"
+       - "Ref 1: 13937684"
+       - "Ref 2: 13937684"
+       - "Operación: 604184018"
+       
+       Extracción correcta:
+       - accountOrConvenio = "18129" (solo el número del convenio, sin "WS")
+       - paymentReference = "13937684" (el código Ref 1)
+       - operacion = "604184018"
+       - bankName = "Banco Agrario"
+       - city = extraer de "Oficina: 3360-RIOSUCIO (CHOCO)" → "RIOSUCIO"
+       
+       ⚠️ El Ref 1/Ref 2 es el CÓDIGO DEL CLIENTE - SIEMPRE ponerlo en paymentReference
     
     3. **🍺 CERVECERÍA UNIÓN DETECTION (CRITICAL)**:
        - ALWAYS set clientCode="10813353" if ANY of these conditions are met:
