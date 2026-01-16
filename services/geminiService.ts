@@ -356,9 +356,14 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
     discrepancies.push(`monto ($${result1.amount} vs $${result2.amount})`);
   }
   
-  // Si hay discrepancias, marcar como ambiguo
-  if (discrepancies.length > 0) {
-    console.warn('⚠️ DISCREPANCIAS detectadas entre análisis:', discrepancies);
+  // Si hay discrepancias en NÚMEROS CRÍTICOS (operacion, rrn, recibo, apro), marcar como ambiguo
+  // Ignorar discrepancias menores como monto (puede ser por formato)
+  const criticalDiscrepancies = discrepancies.filter(d => 
+    d.startsWith('operacion') || d.startsWith('rrn') || d.startsWith('recibo') || d.startsWith('apro') || d.startsWith('comprobante')
+  );
+  
+  if (criticalDiscrepancies.length > 0) {
+    console.warn('⚠️ DISCREPANCIAS CRÍTICAS detectadas:', criticalDiscrepancies);
     
     // Usar el resultado con mayor confianza como base
     const baseResult = (result1.confidenceScore || 0) >= (result2.confidenceScore || 0) ? result1 : result2;
@@ -368,11 +373,16 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
       hasAmbiguousNumbers: true,
       ambiguousFields: [
         ...(baseResult.ambiguousFields || []),
-        ...discrepancies.map(d => d.split(' ')[0]) // Extraer nombre del campo
+        ...criticalDiscrepancies.map(d => d.split(' ')[0]) // Extraer nombre del campo
       ],
-      confidenceScore: Math.min(baseResult.confidenceScore || 50, 70), // Bajar confianza
-      rawText: `${baseResult.rawText || ''} [DOBLE VERIFICACIÓN: Discrepancias en ${discrepancies.join(', ')}]`
+      confidenceScore: Math.min(baseResult.confidenceScore || 50, 65), // Bajar confianza significativamente
+      rawText: `${baseResult.rawText || ''} [DOBLE VERIFICACIÓN: Discrepancias en ${criticalDiscrepancies.join(', ')}]`
     };
+  }
+  
+  // Si solo hay discrepancias menores (monto por formato), ignorar y continuar
+  if (discrepancies.length > 0) {
+    console.log('ℹ️ Discrepancias menores ignoradas:', discrepancies);
   }
   
   // Si ambos análisis coinciden, usar el de mayor confianza

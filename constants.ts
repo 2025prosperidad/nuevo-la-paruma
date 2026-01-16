@@ -87,8 +87,8 @@ export const CERVECERIA_UNION_KEYWORDS = [
 ];
 
 // Umbral mínimo de confianza de la IA para aprobar automáticamente
-// ESTRICTO: Si la IA no está 90% segura, se rechaza
-export const MIN_CONFIDENCE_SCORE = 90;
+// BALANCEADO: 80% es suficiente si no hay números ambiguos
+export const MIN_CONFIDENCE_SCORE = 80;
 
 // Umbral de calidad mínima para recibos térmicos (Redeban, etc.)
 export const MIN_THERMAL_QUALITY_SCORE = 65;

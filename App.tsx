@@ -456,31 +456,39 @@ const App: React.FC = () => {
     }
 
     // =====================================================
-    // VERIFICACIÓN INTELIGENTE: Solo pedir verificación humana
-    // cuando la IA tenga DUDA en los números
+    // VERIFICACIÓN INTELIGENTE: Solo pedir verificación
+    // cuando hay EVIDENCIA CLARA de problemas
     // =====================================================
     const confidenceScore = data.confidenceScore ?? 100;
-    const hasAmbiguousNumbers = data.hasAmbiguousNumbers === true;
-    const hasLowConfidence = confidenceScore < MIN_CONFIDENCE_SCORE;
-
-    // Si la IA tiene DUDA (números ambiguos O baja confianza) → verificación manual
-    if (hasAmbiguousNumbers || hasLowConfidence) {
+    
+    // Solo pedir verificación si:
+    // 1. hasAmbiguousNumbers es true Y hay campos específicos listados (no genérico)
+    // 2. O la confianza es MUY baja (menor a 70%)
+    
+    const hasSpecificAmbiguity = data.hasAmbiguousNumbers === true && 
+                                  data.ambiguousFields && 
+                                  data.ambiguousFields.length > 0;
+    
+    const hasVeryLowConfidence = confidenceScore < 70; // Solo si es muy bajo
+    
+    // Verificación solo para casos claros de duda
+    if (hasSpecificAmbiguity || hasVeryLowConfidence) {
       const reasons = [];
-      if (hasAmbiguousNumbers) {
-        const campos = data.ambiguousFields?.length ? data.ambiguousFields.join(', ') : 'algunos campos';
-        reasons.push(`números dudosos en: ${campos}`);
+      if (hasSpecificAmbiguity) {
+        reasons.push(`campos dudosos: ${data.ambiguousFields!.join(', ')}`);
       }
-      if (hasLowConfidence) {
-        reasons.push(`confianza ${confidenceScore}%`);
+      if (hasVeryLowConfidence) {
+        reasons.push(`confianza muy baja: ${confidenceScore}%`);
       }
-
-      return {
-        status: ValidationStatus.PENDING_VERIFICATION,
-        message: `🔍 VERIFICAR: ${reasons.join(', ')}. Posible confusión de dígitos (3↔8, 1↔7, 0↔6). Compare con la imagen.`
+      
+      return { 
+        status: ValidationStatus.PENDING_VERIFICATION, 
+        message: `🔍 VERIFICAR: ${reasons.join(', ')}. Compare los números con la imagen.` 
       };
     }
 
-    // Si la IA está SEGURA → aprobar automáticamente
+    // Si la confianza está entre 70-80%, aprobar pero con nota
+    // Si está por encima de 80%, aprobar normalmente
     return { status: ValidationStatus.VALID, message: 'OK' };
   };
 
