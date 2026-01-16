@@ -462,7 +462,7 @@ const App: React.FC = () => {
     const confidenceScore = data.confidenceScore ?? 100;
     const hasAmbiguousNumbers = data.hasAmbiguousNumbers === true;
     const hasLowConfidence = confidenceScore < MIN_CONFIDENCE_SCORE;
-    
+
     // Si la IA tiene DUDA (números ambiguos O baja confianza) → verificación manual
     if (hasAmbiguousNumbers || hasLowConfidence) {
       const reasons = [];
@@ -473,10 +473,10 @@ const App: React.FC = () => {
       if (hasLowConfidence) {
         reasons.push(`confianza ${confidenceScore}%`);
       }
-      
-      return { 
-        status: ValidationStatus.PENDING_VERIFICATION, 
-        message: `🔍 VERIFICAR: ${reasons.join(', ')}. Posible confusión de dígitos (3↔8, 1↔7, 0↔6). Compare con la imagen.` 
+
+      return {
+        status: ValidationStatus.PENDING_VERIFICATION,
+        message: `🔍 VERIFICAR: ${reasons.join(', ')}. Posible confusión de dígitos (3↔8, 1↔7, 0↔6). Compare con la imagen.`
       };
     }
 
@@ -731,6 +731,45 @@ const App: React.FC = () => {
     setVerifyModalOpen(true);
   };
 
+  // Helper: Verificar si un número ya existe en los registros
+  const checkDuplicateNumber = (value: string | undefined, currentRecordId: string): { isDuplicate: boolean; field?: string } => {
+    if (!value || value.trim() === '') return { isDuplicate: false };
+    
+    const normalizedValue = String(value).trim().toLowerCase();
+    const numericValue = normalizedValue.replace(/\D/g, '');
+    
+    // Buscar en registros locales (excluyendo el registro actual)
+    const allRecordsToCheck = [
+      ...localRecords.filter(r => r.id !== currentRecordId),
+      ...sheetRecords
+    ];
+    
+    for (const record of allRecordsToCheck) {
+      const existingIds = [
+        { field: 'OPERACION', value: record.operacion },
+        { field: 'RRN', value: record.rrn },
+        { field: 'RECIBO', value: record.recibo },
+        { field: 'APRO', value: record.apro },
+        { field: 'COMPROBANTE', value: record.comprobante },
+        { field: 'ID', value: record.uniqueTransactionId }
+      ];
+      
+      for (const existing of existingIds) {
+        if (!existing.value) continue;
+        const existingNormalized = String(existing.value).trim().toLowerCase();
+        const existingNumeric = existingNormalized.replace(/\D/g, '');
+        
+        // Comparación exacta o numérica
+        if (existingNormalized === normalizedValue || 
+            (numericValue.length >= 4 && existingNumeric === numericValue)) {
+          return { isDuplicate: true, field: existing.field };
+        }
+      }
+    }
+    
+    return { isDuplicate: false };
+  };
+
   // Handle verification submission
   const handleVerifySubmit = (verifiedData: {
     operacion?: string;
@@ -742,9 +781,49 @@ const App: React.FC = () => {
   }) => {
     if (!recordToVerify) return;
 
+    // ⛔ VALIDACIÓN CRÍTICA: Verificar que los números NO sean duplicados
+    const numbersToCheck = [
+      { field: 'OPERACION', value: verifiedData.operacion },
+      { field: 'RRN', value: verifiedData.rrn },
+      { field: 'RECIBO', value: verifiedData.recibo },
+      { field: 'APRO', value: verifiedData.apro },
+      { field: 'COMPROBANTE', value: verifiedData.comprobante }
+    ];
+
+    for (const num of numbersToCheck) {
+      if (!num.value) continue;
+      const duplicateCheck = checkDuplicateNumber(num.value, recordToVerify);
+      if (duplicateCheck.isDuplicate) {
+        // ⛔ DUPLICADO ENCONTRADO - No aprobar, marcar como duplicado
+        setLocalRecords(prev => prev.map(record => {
+          if (record.id === recordToVerify) {
+            return {
+              ...record,
+              operacion: verifiedData.operacion || record.operacion,
+              rrn: verifiedData.rrn || record.rrn,
+              recibo: verifiedData.recibo || record.recibo,
+              apro: verifiedData.apro || record.apro,
+              comprobante: verifiedData.comprobante || record.comprobante,
+              status: ValidationStatus.DUPLICATE,
+              statusMessage: `⛔ DUPLICADO: ${num.field} "${num.value}" ya existe en la base de datos`,
+              verifiedNumbers: true,
+              verifiedBy: verifiedData.verifiedBy,
+              verifiedAt: Date.now()
+            };
+          }
+          return record;
+        }));
+        
+        alert(`⛔ ERROR: El número ${num.field} "${num.value}" ya existe en la base de datos.\n\nEste recibo NO puede ser aprobado porque sería un DUPLICADO.`);
+        setRecordToVerify(null);
+        setVerifyModalOpen(false);
+        return;
+      }
+    }
+
+    // ✅ No hay duplicados - Aprobar el registro
     setLocalRecords(prev => prev.map(record => {
       if (record.id === recordToVerify) {
-        // Guardar números originales para referencia
         const originalNumbers = {
           operacion: record.operacion || undefined,
           rrn: record.rrn || undefined,
@@ -755,13 +834,11 @@ const App: React.FC = () => {
 
         return {
           ...record,
-          // Actualizar números con los verificados
           operacion: verifiedData.operacion || record.operacion,
           rrn: verifiedData.rrn || record.rrn,
           recibo: verifiedData.recibo || record.recibo,
           apro: verifiedData.apro || record.apro,
           comprobante: verifiedData.comprobante || record.comprobante,
-          // Marcar como verificado y aprobado
           status: ValidationStatus.VALID,
           statusMessage: `✓ Números verificados por ${verifiedData.verifiedBy}`,
           verifiedNumbers: true,
