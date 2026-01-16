@@ -460,17 +460,17 @@ const App: React.FC = () => {
     // cuando hay EVIDENCIA CLARA de problemas
     // =====================================================
     const confidenceScore = data.confidenceScore ?? 100;
-    
+
     // Solo pedir verificación si:
     // 1. hasAmbiguousNumbers es true Y hay campos específicos listados (no genérico)
     // 2. O la confianza es MUY baja (menor a 70%)
-    
-    const hasSpecificAmbiguity = data.hasAmbiguousNumbers === true && 
-                                  data.ambiguousFields && 
-                                  data.ambiguousFields.length > 0;
-    
-    const hasVeryLowConfidence = confidenceScore < 70; // Solo si es muy bajo
-    
+
+    const hasSpecificAmbiguity = data.hasAmbiguousNumbers === true &&
+      data.ambiguousFields &&
+      data.ambiguousFields.length > 0;
+
+    const hasVeryLowConfidence = confidenceScore < 55; // Solo si es MUY bajo (sin consenso en triple verificación)
+
     // Verificación solo para casos claros de duda
     if (hasSpecificAmbiguity || hasVeryLowConfidence) {
       const reasons = [];
@@ -480,10 +480,10 @@ const App: React.FC = () => {
       if (hasVeryLowConfidence) {
         reasons.push(`confianza muy baja: ${confidenceScore}%`);
       }
-      
-      return { 
-        status: ValidationStatus.PENDING_VERIFICATION, 
-        message: `🔍 VERIFICAR: ${reasons.join(', ')}. Compare los números con la imagen.` 
+
+      return {
+        status: ValidationStatus.PENDING_VERIFICATION,
+        message: `🔍 VERIFICAR: ${reasons.join(', ')}. Compare los números con la imagen.`
       };
     }
 

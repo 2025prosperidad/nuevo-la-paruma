@@ -313,86 +313,104 @@ const numbersMatch = (a: string | null | undefined, b: string | null | undefined
   return aDigits === bDigits;
 };
 
-// Función principal con DOBLE VERIFICACIÓN
+// Función principal con TRIPLE VERIFICACIÓN
 export const analyzeConsignmentImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<ExtractedData> => {
-  console.log('🔍 Iniciando DOBLE VERIFICACIÓN de imagen...');
+  console.log('🔍 Iniciando TRIPLE VERIFICACIÓN de imagen...');
   
-  // Hacer DOS análisis de la misma imagen
-  const [result1, result2] = await Promise.all([
+  // Hacer TRES análisis de la misma imagen en paralelo
+  const [result1, result2, result3] = await Promise.all([
     singleAnalysis(base64Image, mimeType, 1),
-    singleAnalysis(base64Image, mimeType, 2)
+    singleAnalysis(base64Image, mimeType, 2),
+    singleAnalysis(base64Image, mimeType, 3)
   ]);
   
-  console.log('📊 Análisis 1:', {
-    operacion: result1.operacion,
-    amount: result1.amount,
-    confidence: result1.confidenceScore
-  });
-  console.log('📊 Análisis 2:', {
-    operacion: result2.operacion,
-    amount: result2.amount,
-    confidence: result2.confidenceScore
-  });
+  console.log('📊 Análisis 1:', { operacion: result1.operacion, amount: result1.amount, confidence: result1.confidenceScore });
+  console.log('📊 Análisis 2:', { operacion: result2.operacion, amount: result2.amount, confidence: result2.confidenceScore });
+  console.log('📊 Análisis 3:', { operacion: result3.operacion, amount: result3.amount, confidence: result3.confidenceScore });
   
-  // Comparar los números críticos de ambos análisis
-  const discrepancies: string[] = [];
+  // Función para encontrar el valor más común entre 3 resultados (votación por mayoría)
+  const getMajorityValue = (v1: string | null | undefined, v2: string | null | undefined, v3: string | null | undefined): string | null => {
+    const values = [v1, v2, v3].map(v => v ? String(v).replace(/\D/g, '') : '');
+    
+    // Si 2 o más coinciden, usar ese valor
+    if (values[0] && values[0] === values[1]) return v1 || null;
+    if (values[0] && values[0] === values[2]) return v1 || null;
+    if (values[1] && values[1] === values[2]) return v2 || null;
+    
+    // Si todos son diferentes, hay discrepancia
+    return null;
+  };
   
-  if (!numbersMatch(result1.operacion, result2.operacion)) {
-    discrepancies.push(`operacion (${result1.operacion} vs ${result2.operacion})`);
+  // Verificar consenso en números críticos
+  const operacionConsensus = getMajorityValue(result1.operacion, result2.operacion, result3.operacion);
+  const rrnConsensus = getMajorityValue(result1.rrn, result2.rrn, result3.rrn);
+  const reciboConsensus = getMajorityValue(result1.recibo, result2.recibo, result3.recibo);
+  const aproConsensus = getMajorityValue(result1.apro, result2.apro, result3.apro);
+  const comprobanteConsensus = getMajorityValue(result1.comprobante, result2.comprobante, result3.comprobante);
+  
+  // Detectar campos sin consenso (los 3 dieron diferentes)
+  const noConsensusFields: string[] = [];
+  
+  if ((result1.operacion || result2.operacion || result3.operacion) && !operacionConsensus) {
+    noConsensusFields.push(`operacion (${result1.operacion}/${result2.operacion}/${result3.operacion})`);
   }
-  if (!numbersMatch(result1.rrn, result2.rrn)) {
-    discrepancies.push(`rrn (${result1.rrn} vs ${result2.rrn})`);
+  if ((result1.rrn || result2.rrn || result3.rrn) && !rrnConsensus) {
+    noConsensusFields.push(`rrn (${result1.rrn}/${result2.rrn}/${result3.rrn})`);
   }
-  if (!numbersMatch(result1.recibo, result2.recibo)) {
-    discrepancies.push(`recibo (${result1.recibo} vs ${result2.recibo})`);
+  if ((result1.recibo || result2.recibo || result3.recibo) && !reciboConsensus) {
+    noConsensusFields.push(`recibo (${result1.recibo}/${result2.recibo}/${result3.recibo})`);
   }
-  if (!numbersMatch(result1.apro, result2.apro)) {
-    discrepancies.push(`apro (${result1.apro} vs ${result2.apro})`);
+  if ((result1.apro || result2.apro || result3.apro) && !aproConsensus) {
+    noConsensusFields.push(`apro (${result1.apro}/${result2.apro}/${result3.apro})`);
   }
-  if (!numbersMatch(result1.comprobante, result2.comprobante)) {
-    discrepancies.push(`comprobante (${result1.comprobante} vs ${result2.comprobante})`);
-  }
-  if (result1.amount !== result2.amount) {
-    discrepancies.push(`monto ($${result1.amount} vs $${result2.amount})`);
+  if ((result1.comprobante || result2.comprobante || result3.comprobante) && !comprobanteConsensus) {
+    noConsensusFields.push(`comprobante (${result1.comprobante}/${result2.comprobante}/${result3.comprobante})`);
   }
   
-  // Si hay discrepancias en NÚMEROS CRÍTICOS (operacion, rrn, recibo, apro), marcar como ambiguo
-  // Ignorar discrepancias menores como monto (puede ser por formato)
-  const criticalDiscrepancies = discrepancies.filter(d => 
-    d.startsWith('operacion') || d.startsWith('rrn') || d.startsWith('recibo') || d.startsWith('apro') || d.startsWith('comprobante')
-  );
-  
-  if (criticalDiscrepancies.length > 0) {
-    console.warn('⚠️ DISCREPANCIAS CRÍTICAS detectadas:', criticalDiscrepancies);
+  // Si hay campos sin consenso (3 valores diferentes), marcar como ambiguo
+  if (noConsensusFields.length > 0) {
+    console.warn('⚠️ SIN CONSENSO en triple verificación:', noConsensusFields);
     
     // Usar el resultado con mayor confianza como base
-    const baseResult = (result1.confidenceScore || 0) >= (result2.confidenceScore || 0) ? result1 : result2;
+    const results = [result1, result2, result3];
+    const baseResult = results.reduce((best, current) => 
+      (current.confidenceScore || 0) > (best.confidenceScore || 0) ? current : best
+    );
     
     return {
       ...baseResult,
       hasAmbiguousNumbers: true,
       ambiguousFields: [
         ...(baseResult.ambiguousFields || []),
-        ...criticalDiscrepancies.map(d => d.split(' ')[0]) // Extraer nombre del campo
+        ...noConsensusFields.map(d => d.split(' ')[0])
       ],
-      confidenceScore: Math.min(baseResult.confidenceScore || 50, 65), // Bajar confianza significativamente
-      rawText: `${baseResult.rawText || ''} [DOBLE VERIFICACIÓN: Discrepancias en ${criticalDiscrepancies.join(', ')}]`
+      confidenceScore: Math.min(baseResult.confidenceScore || 50, 55),
+      rawText: `${baseResult.rawText || ''} [TRIPLE VERIFICACIÓN: Sin consenso en ${noConsensusFields.join(', ')}]`
     };
   }
   
-  // Si solo hay discrepancias menores (monto por formato), ignorar y continuar
-  if (discrepancies.length > 0) {
-    console.log('ℹ️ Discrepancias menores ignoradas:', discrepancies);
-  }
+  // ✅ HAY CONSENSO - Usar valores con mayoría
+  console.log('✅ TRIPLE VERIFICACIÓN: Consenso alcanzado');
   
-  // Si ambos análisis coinciden, usar el de mayor confianza
-  console.log('✅ Ambos análisis COINCIDEN');
-  const finalResult = (result1.confidenceScore || 0) >= (result2.confidenceScore || 0) ? result1 : result2;
+  // Usar el resultado con mayor confianza como base y aplicar valores de consenso
+  const results = [result1, result2, result3];
+  const bestResult = results.reduce((best, current) => 
+    (current.confidenceScore || 0) > (best.confidenceScore || 0) ? current : best
+  );
   
-  // Si ambos coinciden, aumentar ligeramente la confianza
-  if (!finalResult.hasAmbiguousNumbers) {
-    finalResult.confidenceScore = Math.min((finalResult.confidenceScore || 90) + 5, 100);
-  }
+  // Construir resultado final con valores de consenso
+  const finalResult: ExtractedData = {
+    ...bestResult,
+    operacion: operacionConsensus || bestResult.operacion,
+    rrn: rrnConsensus || bestResult.rrn,
+    recibo: reciboConsensus || bestResult.recibo,
+    apro: aproConsensus || bestResult.apro,
+    comprobante: comprobanteConsensus || bestResult.comprobante,
+    // Aumentar confianza porque hay consenso
+    confidenceScore: Math.min((bestResult.confidenceScore || 85) + 10, 100),
+    hasAmbiguousNumbers: false,
+    ambiguousFields: []
+  };
   
   return finalResult;
 };
