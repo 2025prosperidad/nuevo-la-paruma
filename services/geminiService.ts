@@ -393,23 +393,34 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
   const aproConsensus = getMajorityValue(result1.apro, result2.apro, result3.apro);
   const comprobanteConsensus = getMajorityValue(result1.comprobante, result2.comprobante, result3.comprobante);
   
-  // Detectar campos sin consenso (los 3 dieron diferentes)
+  // Helper: Contar cuántos resultados tienen un valor para un campo
+  const countNonEmpty = (v1: any, v2: any, v3: any): number => {
+    return [v1, v2, v3].filter(v => v && String(v).trim() !== '').length;
+  };
+  
+  // Detectar campos sin consenso SOLO si al menos 2 de 3 análisis encontraron el campo
+  // Esto evita marcar como "sin consenso" campos que no existen en el recibo
   const noConsensusFields: string[] = [];
   
-  if ((result1.operacion || result2.operacion || result3.operacion) && !operacionConsensus) {
-    noConsensusFields.push(`operacion (${result1.operacion}/${result2.operacion}/${result3.operacion})`);
+  // Solo verificar operacion si al menos 2 análisis la encontraron
+  if (countNonEmpty(result1.operacion, result2.operacion, result3.operacion) >= 2 && !operacionConsensus) {
+    noConsensusFields.push(`operacion (${result1.operacion || '-'}/${result2.operacion || '-'}/${result3.operacion || '-'})`);
   }
-  if ((result1.rrn || result2.rrn || result3.rrn) && !rrnConsensus) {
-    noConsensusFields.push(`rrn (${result1.rrn}/${result2.rrn}/${result3.rrn})`);
+  // Solo verificar rrn si al menos 2 análisis lo encontraron
+  if (countNonEmpty(result1.rrn, result2.rrn, result3.rrn) >= 2 && !rrnConsensus) {
+    noConsensusFields.push(`rrn (${result1.rrn || '-'}/${result2.rrn || '-'}/${result3.rrn || '-'})`);
   }
-  if ((result1.recibo || result2.recibo || result3.recibo) && !reciboConsensus) {
-    noConsensusFields.push(`recibo (${result1.recibo}/${result2.recibo}/${result3.recibo})`);
+  // Solo verificar recibo si al menos 2 análisis lo encontraron
+  if (countNonEmpty(result1.recibo, result2.recibo, result3.recibo) >= 2 && !reciboConsensus) {
+    noConsensusFields.push(`recibo (${result1.recibo || '-'}/${result2.recibo || '-'}/${result3.recibo || '-'})`);
   }
-  if ((result1.apro || result2.apro || result3.apro) && !aproConsensus) {
-    noConsensusFields.push(`apro (${result1.apro}/${result2.apro}/${result3.apro})`);
+  // Solo verificar apro si al menos 2 análisis lo encontraron
+  if (countNonEmpty(result1.apro, result2.apro, result3.apro) >= 2 && !aproConsensus) {
+    noConsensusFields.push(`apro (${result1.apro || '-'}/${result2.apro || '-'}/${result3.apro || '-'})`);
   }
-  if ((result1.comprobante || result2.comprobante || result3.comprobante) && !comprobanteConsensus) {
-    noConsensusFields.push(`comprobante (${result1.comprobante}/${result2.comprobante}/${result3.comprobante})`);
+  // Solo verificar comprobante si al menos 2 análisis lo encontraron
+  if (countNonEmpty(result1.comprobante, result2.comprobante, result3.comprobante) >= 2 && !comprobanteConsensus) {
+    noConsensusFields.push(`comprobante (${result1.comprobante || '-'}/${result2.comprobante || '-'}/${result3.comprobante || '-'})`);
   }
   
   // Si hay campos sin consenso (3 valores diferentes), marcar como ambiguo
