@@ -230,28 +230,7 @@ const App: React.FC = () => {
       };
     }
 
-    // 0-B. VERIFICAR SI HAY NÚMEROS AMBIGUOS (MÁXIMA PRIORIDAD)
-    // Si la IA reporta CUALQUIER número dudoso, rechazar inmediatamente
-    if (data.hasAmbiguousNumbers === true) {
-      const camposProblematicos = data.ambiguousFields && data.ambiguousFields.length > 0
-        ? data.ambiguousFields.join(', ')
-        : 'números de transacción';
-      return {
-        status: ValidationStatus.LOW_CONFIDENCE,
-        message: `⛔ RECHAZADO: Números no claros en: ${camposProblematicos}. Posible confusión de dígitos (3↔8, 1↔7, 0↔6). Suba imagen más clara o verifique manualmente.`
-      };
-    }
-
-    // 0-C. VERIFICAR SCORE DE CONFIANZA (ESTRICTO)
-    const confidenceScore = data.confidenceScore ?? 100;
-    if (confidenceScore < MIN_CONFIDENCE_SCORE) {
-      return {
-        status: ValidationStatus.LOW_CONFIDENCE,
-        message: `⛔ RECHAZADO: Confianza ${confidenceScore}% (requiere ${MIN_CONFIDENCE_SCORE}%). Los números podrían estar mal leídos. Suba una imagen más clara.`
-      };
-    }
-
-    // 0-D. VERIFICAR CALIDAD DE IMAGEN ESPECIAL PARA RECIBOS TÉRMICOS
+    // 0-B. VERIFICAR CALIDAD DE IMAGEN ESPECIAL PARA RECIBOS TÉRMICOS
     // Los recibos Redeban/térmicos necesitan mayor calidad
     const isThermalReceipt = data.rawText?.toLowerCase().includes('redeban') ||
       data.rawText?.toLowerCase().includes('recaudo') ||
@@ -477,20 +456,31 @@ const App: React.FC = () => {
     }
 
     // =====================================================
-    // VERIFICACIÓN FINAL: Todos los recibos con números de transacción
-    // requieren verificación humana antes de ser aprobados
+    // VERIFICACIÓN INTELIGENTE: Solo pedir verificación humana
+    // cuando la IA tenga DUDA en los números
     // =====================================================
-    const hasTransactionNumbers = Boolean(
-      data.operacion || data.rrn || data.recibo || data.apro || data.comprobante
-    );
-
-    if (hasTransactionNumbers) {
-      return {
-        status: ValidationStatus.PENDING_VERIFICATION,
-        message: '🔍 Verifique los números de transacción contra la imagen antes de aprobar. La IA puede cometer errores (confusión 3↔8, 1↔7, 0↔6).'
+    const confidenceScore = data.confidenceScore ?? 100;
+    const hasAmbiguousNumbers = data.hasAmbiguousNumbers === true;
+    const hasLowConfidence = confidenceScore < MIN_CONFIDENCE_SCORE;
+    
+    // Si la IA tiene DUDA (números ambiguos O baja confianza) → verificación manual
+    if (hasAmbiguousNumbers || hasLowConfidence) {
+      const reasons = [];
+      if (hasAmbiguousNumbers) {
+        const campos = data.ambiguousFields?.length ? data.ambiguousFields.join(', ') : 'algunos campos';
+        reasons.push(`números dudosos en: ${campos}`);
+      }
+      if (hasLowConfidence) {
+        reasons.push(`confianza ${confidenceScore}%`);
+      }
+      
+      return { 
+        status: ValidationStatus.PENDING_VERIFICATION, 
+        message: `🔍 VERIFICAR: ${reasons.join(', ')}. Posible confusión de dígitos (3↔8, 1↔7, 0↔6). Compare con la imagen.` 
       };
     }
 
+    // Si la IA está SEGURA → aprobar automáticamente
     return { status: ValidationStatus.VALID, message: 'OK' };
   };
 
