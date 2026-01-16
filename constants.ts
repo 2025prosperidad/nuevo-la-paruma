@@ -50,6 +50,8 @@ export const ALLOWED_CONVENIOS = [
   // BBVA
   '3278',
   '29140',
+  // Banco de Bogotá
+  '1709',   // CEO - CERVECERÍA UNIÓN S.A. (Comprobante de Recaudos)
   // Otros recaudos
   '32137'   // CERVECERÍA UNIÓN T R (visto en recibos Redeban)
 ];
@@ -88,7 +90,9 @@ export const CERVECERIA_UNION_KEYWORDS = [
 
 // Umbral mínimo de confianza de la IA para aprobar automáticamente
 // BALANCEADO: 80% es suficiente si no hay números ambiguos
-export const MIN_CONFIDENCE_SCORE = 80;
+// Umbral de confianza para auto-aprobación
+// Reducido de 80 a 50 porque recibos claros estaban siendo marcados con baja confianza
+export const MIN_CONFIDENCE_SCORE = 50;
 
 // Umbral de calidad mínima para recibos térmicos (Redeban, etc.)
 export const MIN_THERMAL_QUALITY_SCORE = 65;

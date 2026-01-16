@@ -87,6 +87,28 @@ const singleAnalysis = async (base64Image: string, mimeType: string, attemptNumb
        E) **COMPROBANTE** (Número de Comprobante):
           • Labels: "Comprobante No.", "No Comprobante"
        
+       F) **BANCO DE BOGOTÁ - COMPROBANTE DE RECAUDOS (FORMATO ESPECIAL)**:
+          ⚠️ En recibos de "Comprobante de Recaudos" de Banco de Bogotá:
+          • El número de aprobación está en formato: "Srv XXXX AQXXXXXX"
+          • Ejemplo: "Srv 2121 AQ032201" → operacion="2121AQ032201"
+          • EXTRAER COMPLETO incluyendo "AQ" y todos los dígitos
+          • NO confundir con:
+            - "Usu6150" (usuario, ignorar)
+            - "T157" (terminal, ignorar)
+            - "Us:749805890937257" (referencia cliente, va en paymentReference)
+          
+          **EJEMPLO BANCO DE BOGOTÁ:**
+          "Srv 2121 AQ032201 Usu6150 T157"
+          → operacion = "2121AQ032201" ✅
+          → uniqueTransactionId = "2121AQ032201"
+          
+          "Us:749805890937257"
+          → paymentReference = "749805890937257"
+          
+          "CEO 1709" + "CERVECERIA UNION"
+          → accountOrConvenio = "1709"
+          → clientCode = "10813353"
+       
        ⚠️ CRITICAL:
        - Extract COMPLETE values - NO truncation
        - If unclear, mark confidenceScore LOW and hasAmbiguousNumbers=true
@@ -337,14 +359,28 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
   console.log('📊 Análisis 2:', { operacion: result2.operacion, amount: result2.amount, confidence: result2.confidenceScore });
   console.log('📊 Análisis 3:', { operacion: result3.operacion, amount: result3.amount, confidence: result3.confidenceScore });
   
+  // Función para normalizar valores alfanuméricos (preserva letras importantes como AQ)
+  const normalizeValue = (v: string | null | undefined): string => {
+    if (!v) return '';
+    // Convertir a mayúsculas, quitar espacios y guiones
+    // PRESERVAR letras como "AQ" que son parte del código
+    return String(v).toUpperCase().replace(/[\s\-\.]/g, '');
+  };
+  
   // Función para encontrar el valor más común entre 3 resultados (votación por mayoría)
   const getMajorityValue = (v1: string | null | undefined, v2: string | null | undefined, v3: string | null | undefined): string | null => {
-    const values = [v1, v2, v3].map(v => v ? String(v).replace(/\D/g, '') : '');
+    const values = [normalizeValue(v1), normalizeValue(v2), normalizeValue(v3)];
     
-    // Si 2 o más coinciden, usar ese valor
-    if (values[0] && values[0] === values[1]) return v1 || null;
-    if (values[0] && values[0] === values[2]) return v1 || null;
-    if (values[1] && values[1] === values[2]) return v2 || null;
+    // Si 2 o más coinciden, usar el valor original más largo/completo
+    if (values[0] && values[0] === values[1]) return v1 || v2 || null;
+    if (values[0] && values[0] === values[2]) return v1 || v3 || null;
+    if (values[1] && values[1] === values[2]) return v2 || v3 || null;
+    
+    // Verificar si hay coincidencia parcial (2 de 3 tienen el mismo contenido numérico)
+    const numericOnly = values.map(v => v.replace(/\D/g, ''));
+    if (numericOnly[0] && numericOnly[0] === numericOnly[1]) return v1 || v2 || null;
+    if (numericOnly[0] && numericOnly[0] === numericOnly[2]) return v1 || v3 || null;
+    if (numericOnly[1] && numericOnly[1] === numericOnly[2]) return v2 || v3 || null;
     
     // Si todos son diferentes, hay discrepancia
     return null;
@@ -377,8 +413,13 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
   }
   
   // Si hay campos sin consenso (3 valores diferentes), marcar como ambiguo
-  if (noConsensusFields.length > 0) {
-    console.warn('⚠️ SIN CONSENSO en triple verificación:', noConsensusFields);
+  // PERO: solo si son campos críticos (operacion, rrn, recibo)
+  const criticalNoConsensus = noConsensusFields.filter(f => 
+    f.startsWith('operacion') || f.startsWith('rrn') || f.startsWith('recibo')
+  );
+  
+  if (criticalNoConsensus.length > 0) {
+    console.warn('⚠️ SIN CONSENSO en campos CRÍTICOS:', criticalNoConsensus);
     
     // Usar el resultado con mayor confianza como base
     const results = [result1, result2, result3];
@@ -386,16 +427,26 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
       (current.confidenceScore || 0) > (best.confidenceScore || 0) ? current : best
     );
     
+    // Penalizar menos si solo hay 1 campo sin consenso
+    const penalizedScore = criticalNoConsensus.length === 1 
+      ? Math.max((baseResult.confidenceScore || 70) - 15, 55)  // Solo 1 campo: -15 puntos, mínimo 55
+      : Math.min(baseResult.confidenceScore || 50, 50);         // Múltiples: máximo 50
+    
     return {
       ...baseResult,
       hasAmbiguousNumbers: true,
       ambiguousFields: [
         ...(baseResult.ambiguousFields || []),
-        ...noConsensusFields.map(d => d.split(' ')[0])
+        ...criticalNoConsensus.map(d => d.split(' ')[0])
       ],
-      confidenceScore: Math.min(baseResult.confidenceScore || 50, 55),
-      rawText: `${baseResult.rawText || ''} [TRIPLE VERIFICACIÓN: Sin consenso en ${noConsensusFields.join(', ')}]`
+      confidenceScore: penalizedScore,
+      rawText: `${baseResult.rawText || ''} [TRIPLE VERIFICACIÓN: Sin consenso en ${criticalNoConsensus.join(', ')}]`
     };
+  }
+  
+  // Campos no críticos sin consenso (apro, comprobante) - no requiere verificación manual
+  if (noConsensusFields.length > 0) {
+    console.log('ℹ️ Sin consenso en campos NO críticos:', noConsensusFields);
   }
   
   // ✅ HAY CONSENSO - Usar valores con mayoría
