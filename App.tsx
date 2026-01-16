@@ -972,6 +972,8 @@ const App: React.FC = () => {
               onViewImage={(url) => setSelectedImage(url)}
               onAuthorize={activeTab === 'UPLOAD' ? handleAuthorizeRequest : undefined}
               onVerifyNumbers={activeTab === 'UPLOAD' ? handleVerifyRequest : undefined}
+              accounts={allowedAccounts}
+              convenios={allowedConvenios}
             />
           </div>
         </div>

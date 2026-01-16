@@ -1,6 +1,6 @@
 import React from 'react';
-import { ConsignmentRecord, ValidationStatus } from '../types';
-import { CERVECERIA_UNION_CLIENT_CODE } from '../constants';
+import { ConsignmentRecord, ValidationStatus, ConfigItem } from '../types';
+import { CERVECERIA_UNION_CLIENT_CODE, normalizeAccount } from '../constants';
 
 interface ConsignmentTableProps {
   records: ConsignmentRecord[];
@@ -8,9 +8,32 @@ interface ConsignmentTableProps {
   onViewImage: (url: string) => void;
   onAuthorize?: (id: string) => void; // Para autorización
   onVerifyNumbers?: (id: string) => void; // Para verificación de números
+  accounts?: ConfigItem[]; // Cuentas autorizadas para mostrar etiquetas
+  convenios?: ConfigItem[]; // Convenios autorizados para mostrar etiquetas
 }
 
-export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onDelete, onViewImage, onAuthorize, onVerifyNumbers }) => {
+export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onDelete, onViewImage, onAuthorize, onVerifyNumbers, accounts = [], convenios = [] }) => {
+  
+  // Helper: Buscar etiqueta de cuenta/convenio
+  const getAccountLabel = (accountNumber: string | null | undefined): { number: string; label: string } | null => {
+    if (!accountNumber) return null;
+    
+    const normalized = normalizeAccount(accountNumber);
+    
+    // Buscar en cuentas
+    const foundAccount = accounts.find(acc => normalizeAccount(acc.value) === normalized);
+    if (foundAccount) {
+      return { number: accountNumber, label: foundAccount.label || 'Cuenta Autorizada' };
+    }
+    
+    // Buscar en convenios
+    const foundConvenio = convenios.find(conv => normalizeAccount(conv.value) === normalized);
+    if (foundConvenio) {
+      return { number: accountNumber, label: foundConvenio.label || 'Convenio Autorizado' };
+    }
+    
+    return { number: accountNumber, label: '' };
+  };
   
   // Helper: Convert Google Drive URL to viewable format
   const getViewableImageUrl = (url: string): string => {
@@ -169,8 +192,20 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                     );
                   })()}
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <div className="text-gray-600">{record.paymentReference || '-'}</div>
+                <td className="px-4 py-3">
+                  {(() => {
+                    const refInfo = getAccountLabel(record.paymentReference);
+                    if (!refInfo) return <span className="text-gray-400">-</span>;
+                    
+                    return (
+                      <div>
+                        <div className="font-mono text-gray-900 font-medium">{refInfo.number}</div>
+                        {refInfo.label && (
+                          <div className="text-xs text-green-600 mt-0.5">{refInfo.label}</div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {/* Mostrar código cliente Cervecería Unión si aplica */}
                   {record.clientCode === CERVECERIA_UNION_CLIENT_CODE && (
                     <div className="text-xs text-amber-600 font-medium mt-1">
@@ -178,15 +213,25 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-3 text-xs max-w-[180px]">
+                <td className="px-4 py-3 text-xs max-w-[200px]">
                   {/* Mostrar Banco + Ciudad */}
                   <div className="font-medium text-gray-900">{record.bankName || 'Desconocido'}</div>
                   {record.city && (
                     <div className="text-gray-500 mt-0.5">📍 {record.city}</div>
                   )}
-                  <div className="text-gray-400 truncate" title={record.accountOrConvenio}>
-                    {record.accountOrConvenio || '-'}
-                  </div>
+                  {(() => {
+                    const accInfo = getAccountLabel(record.accountOrConvenio);
+                    if (!accInfo) return <div className="text-gray-400">-</div>;
+                    
+                    return (
+                      <div className="mt-1">
+                        <div className="font-mono text-gray-700">{accInfo.number}</div>
+                        {accInfo.label && (
+                          <div className="text-green-600 font-medium">{accInfo.label}</div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </td>
                 <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">
                   {record.amount 
