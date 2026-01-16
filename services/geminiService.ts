@@ -81,7 +81,7 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
        D) **OPERACION** (Número de Operación):
           • Labels: "Operación:", "No. Operación", "Registro de Operación"
           • Common in Banco Agrario, Bancolombia physical receipts
-          • Example: "Registro de Operación: 292652588" → "292652588"
+          • Example: "Registro de Operación: 292652533" → "292652533"
        
        E) **COMPROBANTE** (Número de Comprobante):
           • Labels: "Comprobante No.", "No Comprobante"
@@ -96,6 +96,27 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
        - Look for "Sucursal:", "Ciudad:", "Oficina:" for location
        - Example: "Sucursal: 549 - PLAZA DEL RIO, Ciudad: APARTADO" → city="APARTADO"
        - If multiple cities mentioned, use the one most clearly marked
+    
+    2B. **💳 CUENTA DESTINO vs REFERENCIA DE PAGO (MUY IMPORTANTE)**:
+       
+       ⚠️ NO CONFUNDIR ESTOS DOS CAMPOS:
+       
+       **accountOrConvenio** = CUENTA DESTINO (donde se depositó el dinero):
+       - "Número de producto:", "Cuenta:", "Producto No:"
+       - En Bancolombia: "Número de producto: 24500020950" → accountOrConvenio="24500020950"
+       - En recaudos: "Convenio:", "CONVENIO:" → accountOrConvenio="32137"
+       - SIEMPRE debe ser un número de cuenta o convenio AUTORIZADO
+       
+       **paymentReference** = REFERENCIA/QUIEN PAGA (información del cliente):
+       - "Id Depositante/Pagador:", "Cédula:", "NIT:", "Ref 1:", "Referencia:"
+       - En Bancolombia: "Id Depositante/Pagador: 901284158" → paymentReference="901284158"
+       - Este campo puede repetirse (el mismo cliente puede pagar varias veces)
+       
+       EJEMPLO BANCOLOMBIA:
+       - "Número de producto: 24500020950" → accountOrConvenio="24500020950" ✅
+       - "Id Depositante/Pagador: 901284158" → paymentReference="901284158" ✅
+       
+       ⛔ ERROR COMÚN: Poner el Id Depositante como accountOrConvenio. ¡NO HAGAS ESTO!
     
     3. **🍺 CERVECERÍA UNIÓN DETECTION (CRITICAL)**:
        - ALWAYS set clientCode="10813353" if ANY of these conditions are met:

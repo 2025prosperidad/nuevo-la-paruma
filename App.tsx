@@ -43,7 +43,7 @@ const App: React.FC = () => {
   // Authorization Modal state
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [recordToAuthorize, setRecordToAuthorize] = useState<string | null>(null);
-  
+
   // Verification Modal state
   const [verifyModalOpen, setVerifyModalOpen] = useState(false);
   const [recordToVerify, setRecordToVerify] = useState<string | null>(null);
@@ -483,11 +483,11 @@ const App: React.FC = () => {
     const hasTransactionNumbers = Boolean(
       data.operacion || data.rrn || data.recibo || data.apro || data.comprobante
     );
-    
+
     if (hasTransactionNumbers) {
-      return { 
-        status: ValidationStatus.PENDING_VERIFICATION, 
-        message: '🔍 Verifique los números de transacción contra la imagen antes de aprobar. La IA puede cometer errores (confusión 3↔8, 1↔7, 0↔6).' 
+      return {
+        status: ValidationStatus.PENDING_VERIFICATION,
+        message: '🔍 Verifique los números de transacción contra la imagen antes de aprobar. La IA puede cometer errores (confusión 3↔8, 1↔7, 0↔6).'
       };
     }
 
