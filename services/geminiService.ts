@@ -183,8 +183,20 @@ const singleAnalysis = async (base64Image: string, mimeType: string, attemptNumb
        C) **By Reference**:
           - If reference contains "10813353"
           - If "Codigo cliente cervunion" shows 10813353
+          - If reference is "749805890937257" (internal bank reference for Cervunion)
        
        ⚠️ If detected as Cervecería Unión, ALWAYS return clientCode="10813353"
+       
+       ⚠️ IMPORTANTE - REFERENCIAS INTERNAS DEL BANCO:
+       Si el recibo es de Cervecería Unión Y la referencia es "749805890937257":
+       - Este es un número interno del banco, NO el código del cliente
+       - paymentReference DEBE SER "10813353" (el código real del cliente)
+       - NO usar "749805890937257" como paymentReference
+       
+       EJEMPLO:
+       - Convenio: 32137 - CERVECERIA UNION
+       - REF: 749805890937257
+       → paymentReference = "10813353" ✅ (NO "749805890937257")
     
     4. **📱 SCREENSHOT VS PHYSICAL RECEIPT**:
        - isScreenshot=true if: App screenshot, phone status bar visible, Nequi purple background

@@ -10,7 +10,7 @@ import { VerifyNumbersModal } from './components/VerifyNumbersModal';
 import { analyzeConsignmentImage } from './services/geminiService';
 import { sendToGoogleSheets, fetchHistoryFromSheets, fetchAccountsFromSheets, saveAccountsToSheets } from './services/sheetsService';
 import { ConsignmentRecord, ProcessingStatus, ValidationStatus, ExtractedData, ConfigItem } from './types';
-import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL, CERVECERIA_UNION_CLIENT_CODE, CERVECERIA_UNION_KEYWORDS, CERVECERIA_UNION_CONVENIOS, MIN_CONFIDENCE_SCORE, MIN_THERMAL_QUALITY_SCORE, ALLOWED_CREDIT_CARDS } from './constants';
+import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL, CERVECERIA_UNION_CLIENT_CODE, CERVECERIA_UNION_KEYWORDS, CERVECERIA_UNION_CONVENIOS, MIN_CONFIDENCE_SCORE, MIN_THERMAL_QUALITY_SCORE, ALLOWED_CREDIT_CARDS, CERVECERIA_UNION_INTERNAL_REFS } from './constants';
 import { processImageFile } from './utils/imageCompression';
 
 const App: React.FC = () => {
@@ -425,6 +425,19 @@ const App: React.FC = () => {
     if (isCerveceriaUnion && data.clientCode !== CERVECERIA_UNION_CLIENT_CODE) {
       // Auto-asignar el código si no lo detectó
       data.clientCode = CERVECERIA_UNION_CLIENT_CODE;
+    }
+    
+    // Si es Cervecería Unión y la referencia es un número interno del banco, reemplazarla
+    if (isCerveceriaUnion && data.paymentReference) {
+      const normalizedRef = normalizeAccount(data.paymentReference);
+      const isInternalRef = CERVECERIA_UNION_INTERNAL_REFS.some(
+        internalRef => normalizeAccount(internalRef) === normalizedRef
+      );
+      
+      if (isInternalRef) {
+        console.log(`🔄 Reemplazando referencia interna ${data.paymentReference} por código cliente ${CERVECERIA_UNION_CLIENT_CODE}`);
+        data.paymentReference = CERVECERIA_UNION_CLIENT_CODE;
+      }
     }
 
     if (!extractedAcc && data.paymentReference) {

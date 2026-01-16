@@ -70,6 +70,14 @@ export const KNOWN_CLIENTS: Record<string, string> = {
   '13937684': 'Cliente Cervecería Unión',
 };
 
+// Referencias internas del banco que deben reemplazarse por el código de cliente real
+// Cuando aparecen estos números en recibos de Cervecería Unión, usar 10813353 en su lugar
+export const CERVECERIA_UNION_INTERNAL_REFS = [
+  '749805890937257',  // Referencia interna que aparece en recibos Redeban/Bancolombia
+  '74980589093725',   // Variantes posibles
+  '7498058909372577',
+];
+
 // Convenios que corresponden a Cervecería Unión
 export const CERVECERIA_UNION_CONVENIOS = [
   '32137',   // CERVECERÍA UNIÓN T R
