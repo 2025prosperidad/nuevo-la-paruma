@@ -100,24 +100,33 @@ const singleAnalysis = async (base64Image: string, mimeType: string, attemptNumb
     
     2B. **💳 CUENTA DESTINO vs REFERENCIA DE PAGO (MUY IMPORTANTE)**:
        
-       ⚠️ NO CONFUNDIR ESTOS DOS CAMPOS:
+       ⚠️ REGLAS CLARAS PARA CADA TIPO DE RECIBO:
        
-       **accountOrConvenio** = CUENTA DESTINO (donde se depositó el dinero):
-       - "Número de producto:", "Cuenta:", "Producto No:"
-       - En Bancolombia: "Número de producto: 24500020950" → accountOrConvenio="24500020950"
-       - En recaudos: "Convenio:", "CONVENIO:" → accountOrConvenio="32137"
-       - SIEMPRE debe ser un número de cuenta o convenio AUTORIZADO
+       **accountOrConvenio** = CUENTA/CONVENIO DESTINO:
+       - "Número de producto:", "Cuenta:", "Producto No:", "Convenio:"
+       - Este es el número de cuenta o convenio donde se depositó
        
-       **paymentReference** = REFERENCIA/QUIEN PAGA (información del cliente):
-       - "Id Depositante/Pagador:", "Cédula:", "NIT:", "Ref 1:", "Referencia:"
-       - En Bancolombia: "Id Depositante/Pagador: 901284158" → paymentReference="901284158"
-       - Este campo puede repetirse (el mismo cliente puede pagar varias veces)
+       **paymentReference** = NÚMERO DE CUENTA O CÓDIGO CLIENTE:
+       - Para BANCOLOMBIA (depósitos a cuenta): Usar el MISMO número de producto/cuenta
+         → "Número de producto: 24500020950" → paymentReference="24500020950"
+       - Para RECAUDOS (convenios): Usar el código cliente o referencia
+         → "Codigo cliente: 10813353" → paymentReference="10813353"
+         → "Ref 1: 10813353" → paymentReference="10813353"
        
-       EJEMPLO BANCOLOMBIA:
-       - "Número de producto: 24500020950" → accountOrConvenio="24500020950" ✅
-       - "Id Depositante/Pagador: 901284158" → paymentReference="901284158" ✅
+       **⚠️ IMPORTANTE - BANCOLOMBIA DEPÓSITOS:**
+       Cuando es un DEPÓSITO A CUENTA CORRIENTE/AHORROS de Bancolombia:
+       - accountOrConvenio = Número de producto (ej: "24500020950")
+       - paymentReference = TAMBIÉN el número de producto (ej: "24500020950")
+       - NO usar el "Id Depositante/Pagador" - ese es quien deposita, no es relevante
        
-       ⛔ ERROR COMÚN: Poner el Id Depositante como accountOrConvenio. ¡NO HAGAS ESTO!
+       **EJEMPLO DEPÓSITO BANCOLOMBIA:**
+       - "Número de producto: 24500020950" → accountOrConvenio="24500020950"
+       - "Número de producto: 24500020950" → paymentReference="24500020950" ✅
+       - "Id Depositante/Pagador: 901284158" → IGNORAR (no usar)
+       
+       **EJEMPLO RECAUDO/CONVENIO:**
+       - "Convenio: 32137" → accountOrConvenio="32137"
+       - "Codigo cliente cervunion: 10813353" → paymentReference="10813353"
     
     3. **🍺 CERVECERÍA UNIÓN DETECTION (CRITICAL)**:
        - ALWAYS set clientCode="10813353" if ANY of these conditions are met:
