@@ -28,7 +28,8 @@ if (!apiKey || apiKey === 'missing-key') {
 
 const ai = new GoogleGenAI({ apiKey: apiKey || 'missing-key' });
 
-export const analyzeConsignmentImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<ExtractedData> => {
+// Función interna para una sola llamada a la IA
+const singleAnalysis = async (base64Image: string, mimeType: string, attemptNumber: number): Promise<ExtractedData> => {
   const modelId = "gemini-2.5-flash";
 
   const prompt = `
@@ -300,4 +301,88 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
     const errorMessage = error?.message || error?.toString() || 'Error desconocido';
     throw new Error(`❌ Error al procesar imagen: ${errorMessage}`);
   }
+};
+
+// Comparar dos números extraídos
+const numbersMatch = (a: string | null | undefined, b: string | null | undefined): boolean => {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  // Comparar solo dígitos para ignorar diferencias de formato
+  const aDigits = String(a).replace(/\D/g, '');
+  const bDigits = String(b).replace(/\D/g, '');
+  return aDigits === bDigits;
+};
+
+// Función principal con DOBLE VERIFICACIÓN
+export const analyzeConsignmentImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<ExtractedData> => {
+  console.log('🔍 Iniciando DOBLE VERIFICACIÓN de imagen...');
+  
+  // Hacer DOS análisis de la misma imagen
+  const [result1, result2] = await Promise.all([
+    singleAnalysis(base64Image, mimeType, 1),
+    singleAnalysis(base64Image, mimeType, 2)
+  ]);
+  
+  console.log('📊 Análisis 1:', {
+    operacion: result1.operacion,
+    amount: result1.amount,
+    confidence: result1.confidenceScore
+  });
+  console.log('📊 Análisis 2:', {
+    operacion: result2.operacion,
+    amount: result2.amount,
+    confidence: result2.confidenceScore
+  });
+  
+  // Comparar los números críticos de ambos análisis
+  const discrepancies: string[] = [];
+  
+  if (!numbersMatch(result1.operacion, result2.operacion)) {
+    discrepancies.push(`operacion (${result1.operacion} vs ${result2.operacion})`);
+  }
+  if (!numbersMatch(result1.rrn, result2.rrn)) {
+    discrepancies.push(`rrn (${result1.rrn} vs ${result2.rrn})`);
+  }
+  if (!numbersMatch(result1.recibo, result2.recibo)) {
+    discrepancies.push(`recibo (${result1.recibo} vs ${result2.recibo})`);
+  }
+  if (!numbersMatch(result1.apro, result2.apro)) {
+    discrepancies.push(`apro (${result1.apro} vs ${result2.apro})`);
+  }
+  if (!numbersMatch(result1.comprobante, result2.comprobante)) {
+    discrepancies.push(`comprobante (${result1.comprobante} vs ${result2.comprobante})`);
+  }
+  if (result1.amount !== result2.amount) {
+    discrepancies.push(`monto ($${result1.amount} vs $${result2.amount})`);
+  }
+  
+  // Si hay discrepancias, marcar como ambiguo
+  if (discrepancies.length > 0) {
+    console.warn('⚠️ DISCREPANCIAS detectadas entre análisis:', discrepancies);
+    
+    // Usar el resultado con mayor confianza como base
+    const baseResult = (result1.confidenceScore || 0) >= (result2.confidenceScore || 0) ? result1 : result2;
+    
+    return {
+      ...baseResult,
+      hasAmbiguousNumbers: true,
+      ambiguousFields: [
+        ...(baseResult.ambiguousFields || []),
+        ...discrepancies.map(d => d.split(' ')[0]) // Extraer nombre del campo
+      ],
+      confidenceScore: Math.min(baseResult.confidenceScore || 50, 70), // Bajar confianza
+      rawText: `${baseResult.rawText || ''} [DOBLE VERIFICACIÓN: Discrepancias en ${discrepancies.join(', ')}]`
+    };
+  }
+  
+  // Si ambos análisis coinciden, usar el de mayor confianza
+  console.log('✅ Ambos análisis COINCIDEN');
+  const finalResult = (result1.confidenceScore || 0) >= (result2.confidenceScore || 0) ? result1 : result2;
+  
+  // Si ambos coinciden, aumentar ligeramente la confianza
+  if (!finalResult.hasAmbiguousNumbers) {
+    finalResult.confidenceScore = Math.min((finalResult.confidenceScore || 90) + 5, 100);
+  }
+  
+  return finalResult;
 };

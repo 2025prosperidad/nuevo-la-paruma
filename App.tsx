@@ -734,16 +734,16 @@ const App: React.FC = () => {
   // Helper: Verificar si un número ya existe en los registros
   const checkDuplicateNumber = (value: string | undefined, currentRecordId: string): { isDuplicate: boolean; field?: string } => {
     if (!value || value.trim() === '') return { isDuplicate: false };
-    
+
     const normalizedValue = String(value).trim().toLowerCase();
     const numericValue = normalizedValue.replace(/\D/g, '');
-    
+
     // Buscar en registros locales (excluyendo el registro actual)
     const allRecordsToCheck = [
       ...localRecords.filter(r => r.id !== currentRecordId),
       ...sheetRecords
     ];
-    
+
     for (const record of allRecordsToCheck) {
       const existingIds = [
         { field: 'OPERACION', value: record.operacion },
@@ -753,20 +753,20 @@ const App: React.FC = () => {
         { field: 'COMPROBANTE', value: record.comprobante },
         { field: 'ID', value: record.uniqueTransactionId }
       ];
-      
+
       for (const existing of existingIds) {
         if (!existing.value) continue;
         const existingNormalized = String(existing.value).trim().toLowerCase();
         const existingNumeric = existingNormalized.replace(/\D/g, '');
-        
+
         // Comparación exacta o numérica
-        if (existingNormalized === normalizedValue || 
-            (numericValue.length >= 4 && existingNumeric === numericValue)) {
+        if (existingNormalized === normalizedValue ||
+          (numericValue.length >= 4 && existingNumeric === numericValue)) {
           return { isDuplicate: true, field: existing.field };
         }
       }
     }
-    
+
     return { isDuplicate: false };
   };
 
@@ -813,7 +813,7 @@ const App: React.FC = () => {
           }
           return record;
         }));
-        
+
         alert(`⛔ ERROR: El número ${num.field} "${num.value}" ya existe en la base de datos.\n\nEste recibo NO puede ser aprobado porque sería un DUPLICADO.`);
         setRecordToVerify(null);
         setVerifyModalOpen(false);
