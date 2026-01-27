@@ -136,13 +136,13 @@ export const TrainingSection: React.FC<TrainingSectionProps> = ({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
-                      {record.correctData.bankName || '-'}
+                      {record.correctData?.bankName || '-'}
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                      ${record.correctData.amount.toLocaleString('es-CO')}
+                      ${(record.correctData?.amount || 0).toLocaleString('es-CO')}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
-                      {record.correctData.date || '-'}
+                      {record.correctData?.date || '-'}
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-xs text-gray-600 max-w-xs truncate" title={record.decisionReason}>
