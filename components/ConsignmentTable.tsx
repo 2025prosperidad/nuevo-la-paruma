@@ -8,11 +8,12 @@ interface ConsignmentTableProps {
   onViewImage: (url: string) => void;
   onAuthorize?: (id: string) => void; // Para autorización
   onVerifyNumbers?: (id: string) => void; // Para verificación de números
+  onTrain?: (record: ConsignmentRecord) => void; // Para entrenamiento de IA
   accounts?: ConfigItem[]; // Cuentas autorizadas para mostrar etiquetas
   convenios?: ConfigItem[]; // Convenios autorizados para mostrar etiquetas
 }
 
-export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onDelete, onViewImage, onAuthorize, onVerifyNumbers, accounts = [], convenios = [] }) => {
+export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onDelete, onViewImage, onAuthorize, onVerifyNumbers, onTrain, accounts = [], convenios = [] }) => {
   
   // Helper: Buscar etiqueta de cuenta/convenio
   const getAccountLabel = (accountNumber: string | null | undefined): { number: string; label: string } | null => {
@@ -266,6 +267,16 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                       className="mt-2 w-full px-2 py-1 bg-amber-500 text-white text-xs rounded hover:bg-amber-600 transition-colors flex items-center justify-center gap-1"
                     >
                       🔍 Verificar Números
+                    </button>
+                  )}
+                  {/* Botón de entrenamiento - siempre disponible */}
+                  {onTrain && (
+                    <button
+                      onClick={() => onTrain(record)}
+                      className="mt-2 w-full px-2 py-1 bg-purple-500 text-white text-xs rounded hover:bg-purple-600 transition-colors flex items-center justify-center gap-1"
+                      title="Entrenar la IA con este recibo"
+                    >
+                      🎓 Entrenar IA
                     </button>
                   )}
                   {/* Mostrar si ya tiene autorización */}

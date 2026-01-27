@@ -92,3 +92,64 @@ export interface ConfigItem {
   label: string; // Description (e.g., "Bancolombia Ahorros")
   type: 'ACCOUNT' | 'CONVENIO';
 }
+
+// ==========================================
+// TRAINING DATA - DATOS DE ENTRENAMIENTO
+// ==========================================
+
+export enum TrainingDecision {
+  ACCEPT = 'ACCEPT',         // Este recibo debe ser aceptado
+  REJECT_BLURRY = 'REJECT_BLURRY',    // Rechazar por borroso/mala calidad
+  REJECT_INVALID = 'REJECT_INVALID',  // Rechazar por datos incorrectos
+  REJECT_DUPLICATE = 'REJECT_DUPLICATE', // Rechazar por duplicado
+  REJECT_FRAUD = 'REJECT_FRAUD',     // Rechazar por sospecha de fraude
+}
+
+export interface TrainingRecord {
+  id: string;
+  imageUrl: string;
+  imageHash?: string;
+  createdAt: number;
+  
+  // Decisión humana sobre este recibo
+  decision: TrainingDecision;
+  decisionReason: string; // Explicación de por qué se aceptó/rechazó
+  
+  // Datos CORRECTOS según el humano (ground truth)
+  correctData: ExtractedData;
+  
+  // Datos extraídos originalmente por la IA (para comparación)
+  aiExtractedData: ExtractedData;
+  
+  // Metadata de entrenamiento
+  trainedBy: string; // Nombre de quien entrenó
+  trainedAt: number; // Timestamp de entrenamiento
+  
+  // Tipo de recibo para categorización
+  receiptType: ReceiptType;
+  
+  // Notas adicionales
+  notes?: string;
+}
+
+export enum ReceiptType {
+  REDEBAN_THERMAL = 'REDEBAN_THERMAL',        // Recibo térmico Redeban
+  BANCOLOMBIA_APP = 'BANCOLOMBIA_APP',        // Captura Bancolombia App
+  NEQUI = 'NEQUI',                            // Captura Nequi
+  BANCO_AGRARIO = 'BANCO_AGRARIO',            // Recibo Banco Agrario
+  DAVIVIENDA = 'DAVIVIENDA',                  // Recibo Davivienda
+  BANCO_BOGOTA = 'BANCO_BOGOTA',              // Recibo Banco de Bogotá
+  OCCIDENTE = 'OCCIDENTE',                    // Recibo Banco de Occidente
+  CREDIT_CARD = 'CREDIT_CARD',                // Pago con tarjeta de crédito
+  OTHER = 'OTHER'                             // Otro tipo
+}
+
+// Configuración de tipos de recibo aceptados/rechazados
+export interface ReceiptTypeConfig {
+  type: ReceiptType;
+  label: string;
+  isAccepted: boolean; // Si este tipo de recibo es aceptado
+  minQualityScore: number; // Calidad mínima requerida para este tipo
+  requiresPhysicalReceipt: boolean; // Si requiere número de recibo físico
+  notes: string; // Notas sobre este tipo de recibo
+}

@@ -332,3 +332,139 @@ export const saveAccountsToSheets = async (
     return { success: false, message: `Error: ${error.message || error.toString()}` };
   }
 };
+
+// ===========================================
+// GESTIÓN DE DATOS DE ENTRENAMIENTO
+// ===========================================
+
+export const saveTrainingToSheets = async (
+  trainingRecords: any[],
+  scriptUrl: string
+): Promise<{ success: boolean; message: string }> => {
+  if (!scriptUrl) {
+    return { success: false, message: "URL del Script no configurada" };
+  }
+
+  try {
+    const payload = {
+      action: 'saveTraining',
+      trainingData: trainingRecords.map(record => ({
+        id: record.id,
+        decision: record.decision,
+        decisionReason: record.decisionReason,
+        receiptType: record.receiptType,
+        trainedBy: record.trainedBy,
+        trainedAt: record.trainedAt,
+        notes: record.notes || '',
+        
+        // Datos correctos (ground truth)
+        correctData: {
+          bankName: record.correctData.bankName || '',
+          city: record.correctData.city || '',
+          accountOrConvenio: record.correctData.accountOrConvenio || '',
+          amount: record.correctData.amount || 0,
+          date: record.correctData.date || '',
+          time: record.correctData.time || '',
+          rrn: record.correctData.rrn || '',
+          recibo: record.correctData.recibo || '',
+          apro: record.correctData.apro || '',
+          operacion: record.correctData.operacion || '',
+          comprobante: record.correctData.comprobante || '',
+          paymentReference: record.correctData.paymentReference || '',
+          clientCode: record.correctData.clientCode || '',
+          creditCardLast4: record.correctData.creditCardLast4 || '',
+          imageQualityScore: record.correctData.imageQualityScore || 0,
+          confidenceScore: record.correctData.confidenceScore || 0,
+        },
+        
+        // Datos extraídos por IA (para comparación)
+        aiExtractedData: {
+          bankName: record.aiExtractedData.bankName || '',
+          amount: record.aiExtractedData.amount || 0,
+          date: record.aiExtractedData.date || '',
+          operacion: record.aiExtractedData.operacion || '',
+          confidenceScore: record.aiExtractedData.confidenceScore || 0,
+        },
+        
+        // Imagen en base64
+        imageBase64: record.imageUrl || '',
+        imageHash: record.imageHash || '',
+      }))
+    };
+
+    console.log(`Enviando ${trainingRecords.length} registros de entrenamiento a Sheets...`);
+
+    const response = await fetch(scriptUrl, {
+      method: "POST",
+      redirect: 'follow',
+      credentials: 'omit',
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP Error: ${response.status}`);
+    }
+
+    const text = await response.text();
+    
+    try {
+      const json = JSON.parse(text);
+      
+      if (json.status === 'success') {
+        return { success: true, message: json.message || "Datos de entrenamiento guardados correctamente." };
+      } else if (json.status === 'error') {
+        return { success: false, message: `Error del Script: ${json.message}` };
+      }
+    } catch (e) {
+      console.warn("Response was not JSON:", text);
+      return { success: false, message: `Respuesta inválida del servidor: ${text}` };
+    }
+
+    return { success: true, message: "Datos de entrenamiento guardados correctamente." };
+
+  } catch (error: any) {
+    console.error("Error saving training data:", error);
+    return { success: false, message: `Error: ${error.message || error.toString()}` };
+  }
+};
+
+export const fetchTrainingFromSheets = async (
+  scriptUrl: string
+): Promise<any[]> => {
+  if (!scriptUrl) return [];
+
+  try {
+    const params = new URLSearchParams();
+    params.append('action', 'training');
+    
+    const fetchUrl = `${scriptUrl}?${params.toString()}`;
+
+    const response = await fetch(fetchUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      credentials: 'omit',
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP Error: ${response.status}`);
+    }
+
+    const text = await response.text();
+    let result;
+    try {
+      result = JSON.parse(text);
+    } catch (e) {
+      console.error("Invalid JSON response from Sheet:", text);
+      throw new Error("La respuesta del servidor no es JSON válido.");
+    }
+
+    if (result.status === 'success' && Array.isArray(result.data)) {
+      return result.data;
+    }
+    return [];
+  } catch (error) {
+    console.error("Error fetching training data:", error);
+    throw error;
+  }
+};

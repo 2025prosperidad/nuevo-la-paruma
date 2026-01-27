@@ -7,9 +7,12 @@ import { ImageModal } from './components/ImageModal';
 import { ConfigModal } from './components/ConfigModal';
 import { AuthorizationModal } from './components/AuthorizationModal';
 import { VerifyNumbersModal } from './components/VerifyNumbersModal';
+import { TrainingModal } from './components/TrainingModal';
+import { TrainingSection } from './components/TrainingSection';
+import { ReceiptTypeConfigModal } from './components/ReceiptTypeConfig';
 import { analyzeConsignmentImage } from './services/geminiService';
-import { sendToGoogleSheets, fetchHistoryFromSheets, fetchAccountsFromSheets, saveAccountsToSheets } from './services/sheetsService';
-import { ConsignmentRecord, ProcessingStatus, ValidationStatus, ExtractedData, ConfigItem } from './types';
+import { sendToGoogleSheets, fetchHistoryFromSheets, fetchAccountsFromSheets, saveAccountsToSheets, saveTrainingToSheets, fetchTrainingFromSheets } from './services/sheetsService';
+import { ConsignmentRecord, ProcessingStatus, ValidationStatus, ExtractedData, ConfigItem, TrainingRecord, TrainingDecision, ReceiptType, ReceiptTypeConfig } from './types';
 import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL, CERVECERIA_UNION_CLIENT_CODE, CERVECERIA_UNION_KEYWORDS, CERVECERIA_UNION_CONVENIOS, MIN_CONFIDENCE_SCORE, MIN_THERMAL_QUALITY_SCORE, ALLOWED_CREDIT_CARDS, CERVECERIA_UNION_INTERNAL_REFS } from './constants';
 import { processImageFile } from './utils/imageCompression';
 
@@ -26,7 +29,7 @@ const App: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'UPLOAD' | 'HISTORY'>('UPLOAD');
+  const [activeTab, setActiveTab] = useState<'UPLOAD' | 'HISTORY' | 'TRAINING'>('UPLOAD');
 
   // Config State
   const [configOpen, setConfigOpen] = useState(false);
@@ -47,6 +50,16 @@ const App: React.FC = () => {
   // Verification Modal state
   const [verifyModalOpen, setVerifyModalOpen] = useState(false);
   const [recordToVerify, setRecordToVerify] = useState<string | null>(null);
+
+  // Training State
+  const [trainingRecords, setTrainingRecords] = useState<TrainingRecord[]>([]);
+  const [trainingModalOpen, setTrainingModalOpen] = useState(false);
+  const [recordToTrain, setRecordToTrain] = useState<ConsignmentRecord | null>(null);
+  const [isLoadingTraining, setIsLoadingTraining] = useState(false);
+
+  // Receipt Type Configuration
+  const [receiptTypeConfigs, setReceiptTypeConfigs] = useState<ReceiptTypeConfig[]>([]);
+  const [receiptTypeConfigOpen, setReceiptTypeConfigOpen] = useState(false);
 
   // 1. Load Config on Mount
   useEffect(() => {
@@ -102,6 +115,7 @@ const App: React.FC = () => {
     if (scriptUrl) {
       loadSheetHistory(scriptUrl);
       loadAccountsFromSheets(scriptUrl); // También cargar configuración de cuentas
+      loadTrainingData(scriptUrl); // Cargar datos de entrenamiento
     }
   }, [scriptUrl]);
 
@@ -170,6 +184,173 @@ const App: React.FC = () => {
     }
   };
 
+  // 5. Cargar datos de entrenamiento desde Google Sheets
+  const loadTrainingData = async (url = scriptUrl) => {
+    setIsLoadingTraining(true);
+    try {
+      const data = await fetchTrainingFromSheets(url);
+      setTrainingRecords(data);
+      console.log(`Datos de entrenamiento cargados: ${data.length} registros`);
+    } catch (err: any) {
+      console.error("Failed to load training data", err);
+    } finally {
+      setIsLoadingTraining(false);
+    }
+  };
+
+  // 6. Guardar datos de entrenamiento a Google Sheets
+  const syncTrainingToSheets = async () => {
+    if (!scriptUrl) {
+      alert("Configura la URL del Script primero");
+      return;
+    }
+
+    if (trainingRecords.length === 0) {
+      alert("No hay datos de entrenamiento para sincronizar");
+      return;
+    }
+
+    try {
+      const result = await saveTrainingToSheets(trainingRecords, scriptUrl);
+      alert(result.message);
+
+      if (result.success) {
+        console.log("Datos de entrenamiento sincronizados exitosamente");
+      }
+    } catch (err: any) {
+      console.error("Failed to sync training data", err);
+      alert("Error al sincronizar datos de entrenamiento");
+    }
+  };
+
+  // 7. Abrir modal de entrenamiento para un registro
+  const handleTrainRecord = (record: ConsignmentRecord) => {
+    setRecordToTrain(record);
+    setTrainingModalOpen(true);
+  };
+
+  // 8. Guardar entrenamiento
+  const handleSaveTraining = (trainingData: {
+    decision: TrainingDecision;
+    decisionReason: string;
+    correctData: ExtractedData;
+    receiptType: ReceiptType;
+    notes: string;
+    trainedBy: string;
+  }) => {
+    if (!recordToTrain) return;
+
+    const newTrainingRecord: TrainingRecord = {
+      id: crypto.randomUUID(),
+      imageUrl: recordToTrain.imageUrl,
+      imageHash: recordToTrain.imageHash,
+      createdAt: Date.now(),
+      decision: trainingData.decision,
+      decisionReason: trainingData.decisionReason,
+      correctData: trainingData.correctData,
+      aiExtractedData: {
+        bankName: recordToTrain.bankName,
+        city: recordToTrain.city,
+        accountOrConvenio: recordToTrain.accountOrConvenio,
+        amount: recordToTrain.amount,
+        date: recordToTrain.date,
+        time: recordToTrain.time,
+        uniqueTransactionId: recordToTrain.uniqueTransactionId,
+        rrn: recordToTrain.rrn,
+        recibo: recordToTrain.recibo,
+        apro: recordToTrain.apro,
+        operacion: recordToTrain.operacion,
+        comprobante: recordToTrain.comprobante,
+        paymentReference: recordToTrain.paymentReference,
+        clientCode: recordToTrain.clientCode,
+        creditCardLast4: recordToTrain.creditCardLast4,
+        isCreditCardPayment: recordToTrain.isCreditCardPayment,
+        confidenceScore: recordToTrain.confidenceScore,
+        hasAmbiguousNumbers: recordToTrain.hasAmbiguousNumbers,
+        ambiguousFields: recordToTrain.ambiguousFields,
+        isScreenshot: recordToTrain.isScreenshot,
+        hasPhysicalReceipt: recordToTrain.hasPhysicalReceipt,
+        imageQualityScore: recordToTrain.imageQualityScore,
+        isReadable: recordToTrain.isReadable,
+        rawText: recordToTrain.rawText
+      },
+      receiptType: trainingData.receiptType,
+      trainedBy: trainingData.trainedBy,
+      trainedAt: Date.now(),
+      notes: trainingData.notes
+    };
+
+    setTrainingRecords(prev => [newTrainingRecord, ...prev]);
+    setTrainingModalOpen(false);
+    setRecordToTrain(null);
+
+    // Guardar automáticamente en localStorage
+    const updatedRecords = [newTrainingRecord, ...trainingRecords];
+    localStorage.setItem('training_records', JSON.stringify(updatedRecords));
+
+    alert(`✅ Registro de entrenamiento guardado localmente.\n\nUsa el botón "Sincronizar" para enviar a Google Sheets.`);
+  };
+
+  // 9. Eliminar registro de entrenamiento
+  const handleDeleteTraining = (id: string) => {
+    if (!confirm('¿Eliminar este registro de entrenamiento?')) return;
+
+    setTrainingRecords(prev => {
+      const updated = prev.filter(r => r.id !== id);
+      localStorage.setItem('training_records', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // 10. Exportar dataset de entrenamiento
+  const handleExportTraining = () => {
+    const dataStr = JSON.stringify(trainingRecords, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `training-dataset-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    alert(`✅ Dataset exportado: ${trainingRecords.length} registros`);
+  };
+
+  // 11. Cargar datos de entrenamiento desde localStorage al iniciar
+  useEffect(() => {
+    const saved = localStorage.getItem('training_records');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setTrainingRecords(parsed);
+        console.log(`Datos de entrenamiento cargados desde localStorage: ${parsed.length} registros`);
+      } catch (e) {
+        console.error('Error parsing training records from localStorage', e);
+      }
+    }
+  }, []);
+
+  // 12. Cargar configuración de tipos de recibo desde localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('receipt_type_configs');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setReceiptTypeConfigs(parsed);
+        console.log(`Configuración de tipos de recibo cargada: ${parsed.length} tipos`);
+      } catch (e) {
+        console.error('Error parsing receipt type configs from localStorage', e);
+      }
+    }
+  }, []);
+
+  // 13. Guardar configuración de tipos de recibo
+  const handleSaveReceiptTypeConfig = (configs: ReceiptTypeConfig[]) => {
+    setReceiptTypeConfigs(configs);
+    localStorage.setItem('receipt_type_configs', JSON.stringify(configs));
+    console.log('Configuración de tipos de recibo guardada:', configs.length);
+  };
+
   // Helper: Generate simple hash from image data (to detect exact duplicate images)
   const generateImageHash = async (base64Data: string): Promise<string> => {
     const encoder = new TextEncoder();
@@ -211,6 +392,23 @@ const App: React.FC = () => {
     setConfigOpen(false);
   };
 
+  // Helper: Detectar tipo de recibo
+  const detectReceiptType = (data: ExtractedData): ReceiptType => {
+    const text = data.rawText?.toLowerCase() || '';
+    const bank = data.bankName?.toLowerCase() || '';
+
+    if (text.includes('redeban') || text.includes('corresponsal')) return ReceiptType.REDEBAN_THERMAL;
+    if (bank.includes('bancolombia') && data.isScreenshot) return ReceiptType.BANCOLOMBIA_APP;
+    if (bank.includes('nequi') || text.includes('nequi')) return ReceiptType.NEQUI;
+    if (bank.includes('agrario')) return ReceiptType.BANCO_AGRARIO;
+    if (bank.includes('davivienda')) return ReceiptType.DAVIVIENDA;
+    if (bank.includes('bogota') || bank.includes('bogotá')) return ReceiptType.BANCO_BOGOTA;
+    if (bank.includes('occidente')) return ReceiptType.OCCIDENTE;
+    if (data.isCreditCardPayment) return ReceiptType.CREDIT_CARD;
+
+    return ReceiptType.OTHER;
+  };
+
   const validateRecord = (
     data: ExtractedData & { imageHash?: string },
     existingRecords: ConsignmentRecord[],
@@ -219,10 +417,44 @@ const App: React.FC = () => {
   ): { status: ValidationStatus, message: string } => {
 
     // =====================================================
-    // 0. VALIDACIONES CRÍTICAS DE SEGURIDAD (PRIMERO)
+    // 0. VALIDACIÓN POR TIPO DE RECIBO (PRIMERO)
+    // =====================================================
+    const receiptType = detectReceiptType(data);
+    const typeConfig = receiptTypeConfigs.find(c => c.type === receiptType);
+
+    // Si el tipo de recibo no está aceptado, rechazar inmediatamente
+    if (typeConfig && !typeConfig.isAccepted) {
+      return {
+        status: ValidationStatus.INVALID_ACCOUNT,
+        message: `⛔ RECHAZADO: Tipo de recibo "${typeConfig.label}" no aceptado por configuración del sistema.`
+      };
+    }
+
+    // Verificar calidad mínima según el tipo de recibo
+    const minQualityRequired = typeConfig?.minQualityScore || MIN_QUALITY_SCORE;
+    if (data.imageQualityScore < minQualityRequired) {
+      return {
+        status: ValidationStatus.LOW_QUALITY,
+        message: `⛔ RECHAZADO: Calidad insuficiente para ${typeConfig?.label || 'este tipo'} (${data.imageQualityScore}/100, requiere ${minQualityRequired}).`
+      };
+    }
+
+    // Verificar si requiere número de recibo físico
+    if (typeConfig && typeConfig.requiresPhysicalReceipt) {
+      const hasPhysicalNumber = Boolean(data.rrn || data.recibo || data.apro);
+      if (!hasPhysicalNumber) {
+        return {
+          status: ValidationStatus.MISSING_RECEIPT_NUMBER,
+          message: `⛔ RECHAZADO: ${typeConfig.label} requiere número de recibo físico (RRN/RECIBO/APRO).`
+        };
+      }
+    }
+
+    // =====================================================
+    // 1. VALIDACIONES CRÍTICAS DE SEGURIDAD
     // =====================================================
 
-    // 0-A. VERIFICAR FECHA (CRÍTICO - SIN FECHA = RECHAZO)
+    // 1-A. VERIFICAR FECHA (CRÍTICO - SIN FECHA = RECHAZO)
     if (!data.date || data.date.trim() === '') {
       return {
         status: ValidationStatus.MISSING_DATE,
@@ -942,6 +1174,15 @@ const App: React.FC = () => {
           >
             Historial Base de Datos {isLoadingHistory && '(Cargando...)'}
           </button>
+          <button
+            onClick={() => setActiveTab('TRAINING')}
+            className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'TRAINING'
+              ? 'border-brand-600 text-brand-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+          >
+            🎓 Entrenamiento IA ({trainingRecords.length})
+          </button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
@@ -981,6 +1222,49 @@ const App: React.FC = () => {
               </div>
             )}
 
+            {activeTab === 'TRAINING' && (
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">🎓 Entrenamiento</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                  {trainingRecords.length} registros de entrenamiento guardados
+                </p>
+
+                <button
+                  onClick={syncTrainingToSheets}
+                  className="w-full bg-brand-600 text-white py-2 rounded-lg hover:bg-brand-700 transition-colors mb-3 font-semibold"
+                  disabled={trainingRecords.length === 0}
+                >
+                  📤 Sincronizar con Sheets
+                </button>
+
+                <button
+                  onClick={() => loadTrainingData()}
+                  className="w-full bg-brand-100 text-brand-700 py-2 rounded-lg hover:bg-brand-200 transition-colors mb-3"
+                >
+                  📥 Cargar desde Sheets
+                </button>
+
+                <button
+                  onClick={handleExportTraining}
+                  className="w-full bg-purple-100 text-purple-700 py-2 rounded-lg hover:bg-purple-200 transition-colors"
+                  disabled={trainingRecords.length === 0}
+                >
+                  💾 Exportar JSON
+                </button>
+
+                <div className="mt-4 p-3 bg-yellow-50 rounded-lg text-xs text-yellow-800">
+                  <strong>💡 Cómo entrenar:</strong>
+                  <ol className="mt-2 space-y-1 list-decimal pl-4">
+                    <li>Sube recibos en "Validación en Curso"</li>
+                    <li>Haz clic en "🎓 Entrenar IA"</li>
+                    <li>Corrige los datos si hay errores</li>
+                    <li>Marca como ACEPTAR o RECHAZAR</li>
+                    <li>Sincroniza con Sheets</li>
+                  </ol>
+                </div>
+              </div>
+            )}
+
             <div className="bg-indigo-50 p-4 rounded-xl text-sm text-indigo-800">
               <p className="font-bold mb-2">Validación Exhaustiva:</p>
               <ul className="list-disc pl-4 space-y-1 text-xs">
@@ -995,28 +1279,40 @@ const App: React.FC = () => {
           </div>
 
           <div className="lg:col-span-3">
-            <Stats records={displayedRecords} />
+            {activeTab === 'TRAINING' ? (
+              <TrainingSection
+                records={trainingRecords}
+                onDelete={handleDeleteTraining}
+                onViewImage={(url) => setSelectedImage(url)}
+                onExport={handleExportTraining}
+              />
+            ) : (
+              <>
+                <Stats records={displayedRecords} />
 
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">
-                {activeTab === 'UPLOAD' ? 'Registros Locales (Sin Sincronizar)' : 'Registros en la Nube'} ({displayedRecords.length})
-              </h2>
-              {activeTab === 'UPLOAD' && localRecords.length > 0 && (
-                <button onClick={() => setLocalRecords([])} className="text-sm text-red-600 hover:underline">
-                  Limpiar Todo
-                </button>
-              )}
-            </div>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    {activeTab === 'UPLOAD' ? 'Registros Locales (Sin Sincronizar)' : 'Registros en la Nube'} ({displayedRecords.length})
+                  </h2>
+                  {activeTab === 'UPLOAD' && localRecords.length > 0 && (
+                    <button onClick={() => setLocalRecords([])} className="text-sm text-red-600 hover:underline">
+                      Limpiar Todo
+                    </button>
+                  )}
+                </div>
 
-            <ConsignmentTable
-              records={displayedRecords}
-              onDelete={activeTab === 'UPLOAD' ? handleDelete : () => { }}
-              onViewImage={(url) => setSelectedImage(url)}
-              onAuthorize={activeTab === 'UPLOAD' ? handleAuthorizeRequest : undefined}
-              onVerifyNumbers={activeTab === 'UPLOAD' ? handleVerifyRequest : undefined}
-              accounts={allowedAccounts}
-              convenios={allowedConvenios}
-            />
+                <ConsignmentTable
+                  records={displayedRecords}
+                  onDelete={activeTab === 'UPLOAD' ? handleDelete : () => { }}
+                  onViewImage={(url) => setSelectedImage(url)}
+                  onAuthorize={activeTab === 'UPLOAD' ? handleAuthorizeRequest : undefined}
+                  onVerifyNumbers={activeTab === 'UPLOAD' ? handleVerifyRequest : undefined}
+                  onTrain={activeTab === 'UPLOAD' ? handleTrainRecord : undefined}
+                  accounts={allowedAccounts}
+                  convenios={allowedConvenios}
+                />
+              </>
+            )}
           </div>
         </div>
       </main>
@@ -1037,6 +1333,17 @@ const App: React.FC = () => {
         onResetDefaults={handleResetDefaults}
         onSyncToSheets={syncAccountsToSheets}
         onLoadFromSheets={() => loadAccountsFromSheets(scriptUrl)}
+        onOpenReceiptTypeConfig={() => {
+          setConfigOpen(false);
+          setReceiptTypeConfigOpen(true);
+        }}
+      />
+
+      <ReceiptTypeConfigModal
+        isOpen={receiptTypeConfigOpen}
+        onClose={() => setReceiptTypeConfigOpen(false)}
+        onSave={handleSaveReceiptTypeConfig}
+        initialConfigs={receiptTypeConfigs}
       />
 
       <AuthorizationModal
@@ -1058,6 +1365,67 @@ const App: React.FC = () => {
           setRecordToVerify(null);
         }}
         onVerify={handleVerifySubmit}
+      />
+
+      <TrainingModal
+        isOpen={trainingModalOpen}
+        onClose={() => {
+          setTrainingModalOpen(false);
+          setRecordToTrain(null);
+        }}
+        onSave={handleSaveTraining}
+        imageUrl={recordToTrain?.imageUrl || ''}
+        aiExtractedData={recordToTrain ? {
+          bankName: recordToTrain.bankName,
+          city: recordToTrain.city,
+          accountOrConvenio: recordToTrain.accountOrConvenio,
+          amount: recordToTrain.amount,
+          date: recordToTrain.date,
+          time: recordToTrain.time,
+          uniqueTransactionId: recordToTrain.uniqueTransactionId,
+          rrn: recordToTrain.rrn,
+          recibo: recordToTrain.recibo,
+          apro: recordToTrain.apro,
+          operacion: recordToTrain.operacion,
+          comprobante: recordToTrain.comprobante,
+          paymentReference: recordToTrain.paymentReference,
+          clientCode: recordToTrain.clientCode,
+          creditCardLast4: recordToTrain.creditCardLast4,
+          isCreditCardPayment: recordToTrain.isCreditCardPayment,
+          confidenceScore: recordToTrain.confidenceScore,
+          hasAmbiguousNumbers: recordToTrain.hasAmbiguousNumbers,
+          ambiguousFields: recordToTrain.ambiguousFields,
+          isScreenshot: recordToTrain.isScreenshot,
+          hasPhysicalReceipt: recordToTrain.hasPhysicalReceipt,
+          imageQualityScore: recordToTrain.imageQualityScore,
+          isReadable: recordToTrain.isReadable,
+          rawText: recordToTrain.rawText
+        } : {
+          bankName: '',
+          city: null,
+          accountOrConvenio: '',
+          amount: 0,
+          date: '',
+          time: null,
+          uniqueTransactionId: null,
+          rrn: null,
+          recibo: null,
+          apro: null,
+          operacion: null,
+          comprobante: null,
+          paymentReference: null,
+          clientCode: null,
+          creditCardLast4: null,
+          isCreditCardPayment: false,
+          confidenceScore: 0,
+          hasAmbiguousNumbers: false,
+          ambiguousFields: [],
+          isScreenshot: false,
+          hasPhysicalReceipt: false,
+          imageQualityScore: 0,
+          isReadable: false,
+          rawText: ''
+        }}
       />
     </div>
   );

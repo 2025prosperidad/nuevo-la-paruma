@@ -11,6 +11,7 @@ interface ConfigModalProps {
   onResetDefaults: () => void;
   onSyncToSheets: () => void;
   onLoadFromSheets: () => void;
+  onOpenReceiptTypeConfig?: () => void;
 }
 
 export const ConfigModal: React.FC<ConfigModalProps> = ({
@@ -22,7 +23,8 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   onUpdateConvenios,
   onResetDefaults,
   onSyncToSheets,
-  onLoadFromSheets
+  onLoadFromSheets,
+  onOpenReceiptTypeConfig
 }) => {
   const [activeTab, setActiveTab] = useState<'ACCOUNTS' | 'CONVENIOS'>('ACCOUNTS');
   const [newValue, setNewValue] = useState('');
@@ -186,6 +188,18 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
             </div>
             
             <div className="flex gap-3">
+                {onOpenReceiptTypeConfig && (
+                  <button
+                      onClick={onOpenReceiptTypeConfig}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 flex items-center gap-2"
+                  >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                      </svg>
+                      ⚙️ Tipos de Recibo
+                  </button>
+                )}
+
                 <button
                     onClick={() => {
                         if(window.confirm('¿Cargar configuración desde Google Sheets? Esto sobrescribirá la configuración local.')) {
