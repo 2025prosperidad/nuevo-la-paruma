@@ -359,7 +359,7 @@ export const saveTrainingToSheets = async (
         
         // Datos correctos (ground truth)
         correctData: {
-          bankName: record.correctData.bankName || '',
+          bankName: record.correctData.bankName || 'No especificado',
           city: record.correctData.city || '',
           accountOrConvenio: record.correctData.accountOrConvenio || '',
           amount: record.correctData.amount || 0,

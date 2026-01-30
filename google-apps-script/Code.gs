@@ -11,6 +11,7 @@ const ENABLE_DRIVE_IMAGES = true; // ✅ ACTIVADO para guardar imágenes
 // Nombres de hojas
 const CONSIGNACIONES_SHEET = 'Hoja 1'; // Tu hoja actual de consignaciones
 const ACCOUNTS_SHEET_NAME = 'Cuentas'; // Nueva hoja para convenios/cuentas
+const TRAINING_SHEET_NAME = 'Entrenamientos'; // Nueva hoja para datos de entrenamiento
 
 // ===========================================
 // FUNCIÓN GET - Lee datos y configuración
@@ -41,6 +42,23 @@ function doGet(e) {
       const accounts = getAccounts();
       return ContentService
         .createTextOutput(JSON.stringify({ status: 'success', data: accounts }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (error) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ 
+          status: 'error', 
+          message: error.toString() 
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+  
+  // NUEVO: Si solicita datos de entrenamiento
+  if (e.parameter.action === 'training') {
+    try {
+      const trainingData = getTrainingData();
+      return ContentService
+        .createTextOutput(JSON.stringify({ status: 'success', data: trainingData }))
         .setMimeType(ContentService.MimeType.JSON);
     } catch (error) {
       return ContentService
@@ -174,6 +192,26 @@ function doPost(e) {
         .createTextOutput(JSON.stringify({ 
           status: 'success', 
           message: `${result.saved} cuentas/convenios guardados correctamente`,
+          saved: result.saved
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // NUEVO: Guardar datos de entrenamiento
+    if (payload && typeof payload === 'object' && payload.action === 'saveTraining') {
+      Logger.log('Detectado action=saveTraining');
+      
+      if (!payload.trainingData || !Array.isArray(payload.trainingData)) {
+        throw new Error('Falta el campo trainingData o no es un array');
+      }
+      
+      Logger.log('Guardando ' + payload.trainingData.length + ' registros de entrenamiento...');
+      
+      const result = saveTrainingData(payload.trainingData);
+      return ContentService
+        .createTextOutput(JSON.stringify({ 
+          status: 'success', 
+          message: `${result.saved} registros de entrenamiento guardados correctamente`,
           saved: result.saved
         }))
         .setMimeType(ContentService.MimeType.JSON);
@@ -591,3 +629,210 @@ function saveAccounts(accountsData) {
   }
 }
 
+// ===========================================
+// GESTIÓN DE DATOS DE ENTRENAMIENTO
+// ===========================================
+function getOrCreateTrainingSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(TRAINING_SHEET_NAME);
+  
+  if (!sheet) {
+    sheet = ss.insertSheet(TRAINING_SHEET_NAME);
+    ensureTrainingHeaders(sheet);
+  }
+  
+  return sheet;
+}
+
+function ensureTrainingHeaders(sheet) {
+  if (sheet.getLastRow() === 0) {
+    const headers = [
+      'ID',
+      'Timestamp',
+      'Decisión',
+      'Razón',
+      'Tipo Recibo',
+      'Entrenador',
+      'Notas',
+      // Datos correctos (ground truth)
+      'Banco',
+      'Ciudad',
+      'Cuenta/Convenio',
+      'Monto',
+      'Fecha',
+      'Hora',
+      'RRN',
+      'Recibo',
+      'APRO',
+      'Operación',
+      'Comprobante',
+      'Referencia Pago',
+      'Código Cliente',
+      'Tarjeta (últimos 4)',
+      'Calidad Imagen',
+      'Confianza IA',
+      // Datos extraídos por IA (para comparación)
+      'IA - Banco',
+      'IA - Monto',
+      'IA - Fecha',
+      'IA - Operación',
+      'IA - Confianza',
+      // URL Imagen
+      'URL Imagen',
+      'Hash Imagen'
+    ];
+    sheet.appendRow(headers);
+    
+    const headerRange = sheet.getRange(1, 1, 1, headers.length);
+    headerRange.setFontWeight('bold');
+    headerRange.setBackground('#ea4335');
+    headerRange.setFontColor('#ffffff');
+  }
+}
+
+function saveTrainingData(trainingRecords) {
+  try {
+    Logger.log('saveTrainingData llamado con ' + trainingRecords.length + ' registros');
+    
+    const sheet = getOrCreateTrainingSheet();
+    ensureTrainingHeaders(sheet);
+    
+    let saved = 0;
+    
+    trainingRecords.forEach((record, index) => {
+      try {
+        // Validar que tenga los campos mínimos
+        if (!record.id || !record.decision) {
+          Logger.log('⚠️ Registro ' + index + ' sin ID o decisión. Saltando...');
+          return;
+        }
+        
+        // Procesar imagen si existe
+        let imageUrl = '';
+        if (ENABLE_DRIVE_IMAGES && record.imageBase64 && record.imageBase64.length > 100) {
+          try {
+            imageUrl = saveImageToDrive(
+              record.imageBase64, 
+              `training_${record.id}_${Date.now()}`
+            );
+            Logger.log('✅ Imagen de entrenamiento guardada: ' + imageUrl.substring(0, 50));
+          } catch (imgError) {
+            Logger.log('⚠️ Error guardando imagen de entrenamiento: ' + imgError.toString());
+            imageUrl = '';
+          }
+        }
+        
+        const correctData = record.correctData || {};
+        const aiData = record.aiExtractedData || {};
+        
+        const row = [
+          record.id || '',
+          new Date(record.trainedAt || Date.now()),
+          record.decision || '',
+          record.decisionReason || '',
+          record.receiptType || '',
+          record.trainedBy || '',
+          record.notes || '',
+          // Datos correctos
+          correctData.bankName || 'No especificado',
+          correctData.city || '',
+          correctData.accountOrConvenio || '',
+          correctData.amount || 0,
+          correctData.date || '',
+          correctData.time || '',
+          correctData.rrn || '',
+          correctData.recibo || '',
+          correctData.apro || '',
+          correctData.operacion || '',
+          correctData.comprobante || '',
+          correctData.paymentReference || '',
+          correctData.clientCode || '',
+          correctData.creditCardLast4 || '',
+          correctData.imageQualityScore || 0,
+          correctData.confidenceScore || 0,
+          // Datos IA
+          aiData.bankName || '',
+          aiData.amount || 0,
+          aiData.date || '',
+          aiData.operacion || '',
+          aiData.confidenceScore || 0,
+          // Imagen
+          imageUrl,
+          record.imageHash || ''
+        ];
+        
+        sheet.appendRow(row);
+        saved++;
+        
+      } catch (rowError) {
+        Logger.log('❌ Error procesando registro de entrenamiento ' + index + ': ' + rowError.toString());
+      }
+    });
+    
+    Logger.log('✅ Total registros de entrenamiento guardados: ' + saved);
+    return { saved };
+    
+  } catch (error) {
+    Logger.log('❌ Error en saveTrainingData: ' + error.toString());
+    throw error;
+  }
+}
+
+function getTrainingData() {
+  try {
+    const sheet = getOrCreateTrainingSheet();
+    const data = sheet.getDataRange().getValues();
+    
+    if (data.length <= 1) {
+      return [];
+    }
+    
+    const headers = data[0];
+    const rows = data.slice(1);
+    
+    const trainingRecords = rows.map((row, index) => {
+      return {
+        id: row[0] || `training-${index}`,
+        trainedAt: row[1] instanceof Date ? row[1].getTime() : Date.now(),
+        decision: row[2] || '',
+        decisionReason: row[3] || '',
+        receiptType: row[4] || '',
+        trainedBy: row[5] || '',
+        notes: row[6] || '',
+        correctData: {
+          bankName: row[7] || '',
+          city: row[8] || '',
+          accountOrConvenio: row[9] || '',
+          amount: row[10] || 0,
+          date: row[11] || '',
+          time: row[12] || '',
+          rrn: row[13] || '',
+          recibo: row[14] || '',
+          apro: row[15] || '',
+          operacion: row[16] || '',
+          comprobante: row[17] || '',
+          paymentReference: row[18] || '',
+          clientCode: row[19] || '',
+          creditCardLast4: row[20] || '',
+          imageQualityScore: row[21] || 0,
+          confidenceScore: row[22] || 0
+        },
+        aiExtractedData: {
+          bankName: row[23] || '',
+          amount: row[24] || 0,
+          date: row[25] || '',
+          operacion: row[26] || '',
+          confidenceScore: row[27] || 0
+        },
+        imageUrl: row[28] || '',
+        imageHash: row[29] || ''
+      };
+    });
+    
+    return trainingRecords;
+    
+  } catch (error) {
+    Logger.log('❌ Error en getTrainingData: ' + error.toString());
+    throw error;
+  }
+}
