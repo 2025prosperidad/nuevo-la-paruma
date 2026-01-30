@@ -348,48 +348,54 @@ export const saveTrainingToSheets = async (
   try {
     const payload = {
       action: 'saveTraining',
-      trainingData: trainingRecords.map(record => ({
-        id: record.id,
-        decision: record.decision,
-        decisionReason: record.decisionReason,
-        receiptType: record.receiptType,
-        trainedBy: record.trainedBy,
-        trainedAt: record.trainedAt,
-        notes: record.notes || '',
+      trainingData: trainingRecords.map(record => {
+        // Validación defensiva: asegurar que correctData y aiExtractedData existan
+        const correctData = record.correctData || {};
+        const aiExtractedData = record.aiExtractedData || {};
         
-        // Datos correctos (ground truth)
-        correctData: {
-          bankName: record.correctData.bankName || 'No especificado',
-          city: record.correctData.city || '',
-          accountOrConvenio: record.correctData.accountOrConvenio || '',
-          amount: record.correctData.amount || 0,
-          date: record.correctData.date || '',
-          time: record.correctData.time || '',
-          rrn: record.correctData.rrn || '',
-          recibo: record.correctData.recibo || '',
-          apro: record.correctData.apro || '',
-          operacion: record.correctData.operacion || '',
-          comprobante: record.correctData.comprobante || '',
-          paymentReference: record.correctData.paymentReference || '',
-          clientCode: record.correctData.clientCode || '',
-          creditCardLast4: record.correctData.creditCardLast4 || '',
-          imageQualityScore: record.correctData.imageQualityScore || 0,
-          confidenceScore: record.correctData.confidenceScore || 0,
-        },
-        
-        // Datos extraídos por IA (para comparación)
-        aiExtractedData: {
-          bankName: record.aiExtractedData.bankName || '',
-          amount: record.aiExtractedData.amount || 0,
-          date: record.aiExtractedData.date || '',
-          operacion: record.aiExtractedData.operacion || '',
-          confidenceScore: record.aiExtractedData.confidenceScore || 0,
-        },
-        
-        // Imagen en base64
-        imageBase64: record.imageUrl || '',
-        imageHash: record.imageHash || '',
-      }))
+        return {
+          id: record.id,
+          decision: record.decision,
+          decisionReason: record.decisionReason,
+          receiptType: record.receiptType,
+          trainedBy: record.trainedBy,
+          trainedAt: record.trainedAt,
+          notes: record.notes || '',
+          
+          // Datos correctos (ground truth)
+          correctData: {
+            bankName: correctData.bankName || 'No especificado',
+            city: correctData.city || '',
+            accountOrConvenio: correctData.accountOrConvenio || '',
+            amount: correctData.amount || 0,
+            date: correctData.date || '',
+            time: correctData.time || '',
+            rrn: correctData.rrn || '',
+            recibo: correctData.recibo || '',
+            apro: correctData.apro || '',
+            operacion: correctData.operacion || '',
+            comprobante: correctData.comprobante || '',
+            paymentReference: correctData.paymentReference || '',
+            clientCode: correctData.clientCode || '',
+            creditCardLast4: correctData.creditCardLast4 || '',
+            imageQualityScore: correctData.imageQualityScore || 0,
+            confidenceScore: correctData.confidenceScore || 0,
+          },
+          
+          // Datos extraídos por IA (para comparación)
+          aiExtractedData: {
+            bankName: aiExtractedData.bankName || '',
+            amount: aiExtractedData.amount || 0,
+            date: aiExtractedData.date || '',
+            operacion: aiExtractedData.operacion || '',
+            confidenceScore: aiExtractedData.confidenceScore || 0,
+          },
+          
+          // Imagen en base64
+          imageBase64: record.imageUrl || '',
+          imageHash: record.imageHash || '',
+        };
+      })
     };
 
     console.log(`Enviando ${trainingRecords.length} registros de entrenamiento a Sheets...`);
