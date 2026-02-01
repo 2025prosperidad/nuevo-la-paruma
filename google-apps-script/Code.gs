@@ -4,7 +4,7 @@
 // ===========================================
 
 // CONFIGURACIÓN - ACTUALIZA ESTOS IDs
-const SPREADSHEET_ID = 'TU_ID_DE_GOOGLE_SHEET_AQUI'; // O usa getActiveSpreadsheet()
+const SPREADSHEET_ID = '1TK_YYq8BWYx-OBxArMw9fWnBUHLgim6Gne2tPzWyOpQ'; // ID de tu Google Sheet
 const DRIVE_FOLDER_ID = '1ktHeHJ8jdTCjIU3mcOIYzRtg5M-rSJhF'; // ID de tu carpeta Drive
 const ENABLE_DRIVE_IMAGES = true; // ✅ ACTIVADO para guardar imágenes
 

@@ -324,21 +324,21 @@ const App: React.FC = () => {
         const parsed = JSON.parse(saved);
         // Validar que los datos tengan la estructura correcta
         const validRecords = parsed.filter((record: any) => {
-          return record && 
-                 record.id && 
-                 record.decision && 
-                 record.correctData && 
-                 record.aiExtractedData &&
-                 typeof record.correctData === 'object' &&
-                 typeof record.aiExtractedData === 'object';
+          return record &&
+            record.id &&
+            record.decision &&
+            record.correctData &&
+            record.aiExtractedData &&
+            typeof record.correctData === 'object' &&
+            typeof record.aiExtractedData === 'object';
         });
-        
+
         if (validRecords.length !== parsed.length) {
           console.warn(`Se encontraron ${parsed.length - validRecords.length} registros corruptos que fueron eliminados`);
           // Guardar solo los registros válidos
           localStorage.setItem('training_records', JSON.stringify(validRecords));
         }
-        
+
         setTrainingRecords(validRecords);
         console.log(`Datos de entrenamiento cargados desde localStorage: ${validRecords.length} registros`);
       } catch (e) {

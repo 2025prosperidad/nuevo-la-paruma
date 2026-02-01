@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { ExtractedData } from "../types";
+import { ExtractedData, TrainingRecord, ReceiptType } from "../types";
 
 // Access API key - Vite will replace process.env.API_KEY at build time via define
 // Using a function to ensure it's evaluated at runtime
@@ -28,13 +28,90 @@ if (!apiKey || apiKey === 'missing-key') {
 
 const ai = new GoogleGenAI({ apiKey: apiKey || 'missing-key' });
 
+// Función para obtener ejemplos de entrenamiento del localStorage
+const getTrainingExamples = (receiptType?: ReceiptType): string => {
+  try {
+    const trainingDataRaw = localStorage.getItem('training_records');
+    if (!trainingDataRaw) return '';
+    
+    const allTrainingRecords: TrainingRecord[] = JSON.parse(trainingDataRaw);
+    
+    // Filtrar solo registros aceptados
+    const acceptedRecords = allTrainingRecords.filter(r => r.decision === 'ACCEPT');
+    
+    if (acceptedRecords.length === 0) return '';
+    
+    // Si hay tipo de recibo específico, filtrar por ese tipo primero
+    let relevantRecords = receiptType 
+      ? acceptedRecords.filter(r => r.receiptType === receiptType)
+      : acceptedRecords;
+    
+    // Si no hay registros del tipo específico, usar todos
+    if (relevantRecords.length === 0) {
+      relevantRecords = acceptedRecords;
+    }
+    
+    // Tomar máximo 3 ejemplos más recientes
+    const examples = relevantRecords
+      .sort((a, b) => (b.trainedAt || 0) - (a.trainedAt || 0))
+      .slice(0, 3);
+    
+    if (examples.length === 0) return '';
+    
+    // Construir texto de ejemplos
+    const examplesText = examples.map((record, index) => {
+      const data = record.correctData;
+      return `
+        📚 EJEMPLO DE ENTRENAMIENTO ${index + 1} (${record.receiptType}):
+        Banco: ${data.bankName}
+        Cuenta/Convenio: ${data.accountOrConvenio}
+        Monto: ${data.amount}
+        Fecha: ${data.date}
+        ${data.rrn ? `RRN: ${data.rrn}` : ''}
+        ${data.recibo ? `RECIBO: ${data.recibo}` : ''}
+        ${data.apro ? `APRO: ${data.apro}` : ''}
+        ${data.operacion ? `OPERACION: ${data.operacion}` : ''}
+        ${data.comprobante ? `COMPROBANTE: ${data.comprobante}` : ''}
+        ${data.paymentReference ? `Referencia Pago: ${data.paymentReference}` : ''}
+        ${data.clientCode ? `Código Cliente: ${data.clientCode}` : ''}
+        
+        📝 Razón del entrenador: "${record.decisionReason}"
+        ${record.notes ? `📌 Notas: "${record.notes}"` : ''}
+      `.trim();
+    }).join('\n\n');
+    
+    return `
+    
+    🎓 APRENDIZAJE PREVIO - APLICA ESTAS REGLAS:
+    
+    Has sido entrenado con estos ${examples.length} ejemplos correctos. 
+    DEBES seguir estos patrones y reglas aprendidas:
+    
+    ${examplesText}
+    
+    ⚠️ IMPORTANTE: Aplica las mismas reglas y patrones de estos ejemplos al analizar la nueva imagen.
+    Si encuentras un recibo similar a alguno de estos ejemplos, usa la misma lógica de extracción.
+    `;
+    
+  } catch (error) {
+    console.warn('Error al cargar ejemplos de entrenamiento:', error);
+    return '';
+  }
+};
+
 // Función interna para una sola llamada a la IA
-const singleAnalysis = async (base64Image: string, mimeType: string, attemptNumber: number): Promise<ExtractedData> => {
+const singleAnalysis = async (
+  base64Image: string, 
+  mimeType: string, 
+  attemptNumber: number,
+  trainingContext?: string
+): Promise<ExtractedData> => {
   const modelId = "gemini-2.5-flash";
 
   const prompt = `
     Analyze this image of a Colombian bank payment receipt (consignación or comprobante).
     Types: Redeban (Thermal paper), Bancolombia App, Nequi (Purple screenshot), Banco Agrario, Davivienda.
+${trainingContext || ''}
 
     ⚠️ CRITICAL EXTRACTION RULES - READ CAREFULLY:
     
@@ -405,11 +482,14 @@ const numbersMatch = (a: string | null | undefined, b: string | null | undefined
 export const analyzeConsignmentImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<ExtractedData> => {
   console.log('🔍 Iniciando TRIPLE VERIFICACIÓN de imagen...');
   
+  // Obtener contexto de entrenamiento (detectaremos el tipo después del primer análisis)
+  const trainingContext = getTrainingExamples();
+  
   // Hacer TRES análisis de la misma imagen en paralelo
   const [result1, result2, result3] = await Promise.all([
-    singleAnalysis(base64Image, mimeType, 1),
-    singleAnalysis(base64Image, mimeType, 2),
-    singleAnalysis(base64Image, mimeType, 3)
+    singleAnalysis(base64Image, mimeType, 1, trainingContext),
+    singleAnalysis(base64Image, mimeType, 2, trainingContext),
+    singleAnalysis(base64Image, mimeType, 3, trainingContext)
   ]);
   
   console.log('📊 Análisis 1:', { operacion: result1.operacion, amount: result1.amount, confidence: result1.confidenceScore });
