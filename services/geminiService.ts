@@ -51,12 +51,38 @@ const getTrainingExamples = (receiptType?: ReceiptType): string => {
       relevantRecords = acceptedRecords;
     }
     
-    // Tomar máximo 3 ejemplos más recientes
-    const examples = relevantRecords
+    // ELIMINAR DUPLICADOS: Usar imageHash o combinación de campos únicos
+    const uniqueRecords: TrainingRecord[] = [];
+    const seenHashes = new Set<string>();
+    const seenKeys = new Set<string>();
+    
+    for (const record of relevantRecords) {
+      // Primero intentar por hash de imagen (más preciso)
+      if (record.imageHash) {
+        if (seenHashes.has(record.imageHash)) {
+          continue; // Duplicado por hash
+        }
+        seenHashes.add(record.imageHash);
+      }
+      
+      // Si no hay hash, usar combinación de campos únicos
+      const uniqueKey = `${record.receiptType}_${record.correctData.bankName}_${record.correctData.comprobante || record.correctData.operacion || record.correctData.rrn || ''}_${record.correctData.amount}_${record.correctData.date}`;
+      if (seenKeys.has(uniqueKey)) {
+        continue; // Duplicado por campos
+      }
+      seenKeys.add(uniqueKey);
+      
+      uniqueRecords.push(record);
+    }
+    
+    // Tomar máximo 3 ejemplos más recientes (sin duplicados)
+    const examples = uniqueRecords
       .sort((a, b) => (b.trainedAt || 0) - (a.trainedAt || 0))
       .slice(0, 3);
     
     if (examples.length === 0) return '';
+    
+    console.log(`📚 Cargando ${examples.length} ejemplos de entrenamiento${receiptType ? ` para tipo ${receiptType}` : ''}`);
     
     // Construir texto de ejemplos
     const examplesText = examples.map((record, index) => {
@@ -111,9 +137,14 @@ const singleAnalysis = async (
   const prompt = `
     Analyze this image of a Colombian bank payment receipt (consignación or comprobante).
     Types: Redeban (Thermal paper), Bancolombia App, Nequi (Purple screenshot), Banco Agrario, Davivienda.
+
 ${trainingContext || ''}
 
+    ${trainingContext ? '🎯 ATENCIÓN CRÍTICA: Los ejemplos de entrenamiento mostrados arriba son REGLAS OBLIGATORIAS que DEBES seguir. Si encuentras un recibo similar a alguno de esos ejemplos, aplica EXACTAMENTE las mismas reglas, patrones y lógica de extracción indicadas en la "Razón del entrenador" y "Notas". NO pidas autorización si el recibo coincide con un ejemplo de entrenamiento aceptado.' : ''}
+
     ⚠️ CRITICAL EXTRACTION RULES - READ CAREFULLY:
+    
+    ${trainingContext ? '🎯 ATENCIÓN: Los ejemplos de entrenamiento arriba son REGLAS OBLIGATORIAS. Si encuentras un recibo similar, DEBES aplicar exactamente las mismas reglas y patrones mostrados en los ejemplos.' : ''}
     
     🔒 SEGURIDAD ANTI-FRAUDE - MÁXIMA PRIORIDAD:
     
@@ -478,14 +509,42 @@ const numbersMatch = (a: string | null | undefined, b: string | null | undefined
   return aDigits === bDigits;
 };
 
+// Función auxiliar para detectar tipo de recibo rápidamente
+const detectReceiptTypeFromData = (data: ExtractedData): ReceiptType => {
+  const text = data.rawText?.toLowerCase() || '';
+  const bank = data.bankName?.toLowerCase() || '';
+  
+  if (text.includes('redeban') || text.includes('corresponsal')) return ReceiptType.REDEBAN_THERMAL;
+  if (bank.includes('bancolombia') && data.isScreenshot) return ReceiptType.BANCOLOMBIA_APP;
+  if (bank.includes('nequi') || text.includes('nequi')) return ReceiptType.NEQUI;
+  if (bank.includes('agrario')) return ReceiptType.BANCO_AGRARIO;
+  if (bank.includes('davivienda')) return ReceiptType.DAVIVIENDA;
+  if (bank.includes('bogota') || bank.includes('bogotá')) return ReceiptType.BANCO_BOGOTA;
+  if (bank.includes('occidente')) return ReceiptType.OCCIDENTE;
+  if (data.isCreditCardPayment) return ReceiptType.CREDIT_CARD;
+  
+  return ReceiptType.OTHER;
+};
+
 // Función principal con TRIPLE VERIFICACIÓN
 export const analyzeConsignmentImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<ExtractedData> => {
   console.log('🔍 Iniciando TRIPLE VERIFICACIÓN de imagen...');
   
-  // Obtener contexto de entrenamiento (detectaremos el tipo después del primer análisis)
-  const trainingContext = getTrainingExamples();
+  // PASO 1: Hacer un análisis rápido primero para detectar el tipo de recibo
+  console.log('🔍 Paso 1: Detectando tipo de recibo...');
+  const quickResult = await singleAnalysis(base64Image, mimeType, 0, '');
+  const detectedReceiptType = detectReceiptTypeFromData(quickResult);
+  console.log(`✅ Tipo de recibo detectado: ${detectedReceiptType}`);
   
-  // Hacer TRES análisis de la misma imagen en paralelo
+  // PASO 2: Obtener contexto de entrenamiento filtrado por tipo
+  const trainingContext = getTrainingExamples(detectedReceiptType);
+  if (trainingContext) {
+    console.log(`📚 Contexto de entrenamiento cargado para tipo ${detectedReceiptType}`);
+  } else {
+    console.log('⚠️ No se encontraron entrenamientos para este tipo de recibo');
+  }
+  
+  // PASO 3: Hacer TRES análisis completos de la misma imagen en paralelo con contexto de entrenamiento
   const [result1, result2, result3] = await Promise.all([
     singleAnalysis(base64Image, mimeType, 1, trainingContext),
     singleAnalysis(base64Image, mimeType, 2, trainingContext),
