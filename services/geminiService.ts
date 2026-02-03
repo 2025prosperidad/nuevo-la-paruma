@@ -32,41 +32,61 @@ const ai = new GoogleGenAI({ apiKey: apiKey || 'missing-key' });
 const getTrainingExamples = (receiptType?: ReceiptType): string => {
   try {
     const trainingDataRaw = localStorage.getItem('training_records');
-    if (!trainingDataRaw) return '';
-    
+    if (!trainingDataRaw) {
+      console.log('⚠️ Few-Shot Learning: No hay datos de entrenamiento en localStorage');
+      return '';
+    }
+
     const allTrainingRecords: TrainingRecord[] = JSON.parse(trainingDataRaw);
-    
-    // Filtrar solo registros aceptados
-    const acceptedRecords = allTrainingRecords.filter(r => r.decision === 'ACCEPT');
-    
-    if (acceptedRecords.length === 0) return '';
-    
+    console.log(`📊 Few-Shot Learning: ${allTrainingRecords.length} registros totales en localStorage`);
+
+    // Filtrar solo registros aceptados Y que tengan datos correctos válidos
+    const acceptedRecords = allTrainingRecords.filter(r => {
+      const isAccepted = r.decision === 'ACCEPT';
+      const hasValidData = r.correctData &&
+        typeof r.correctData === 'object' &&
+        (r.correctData.bankName || r.correctData.amount || r.correctData.accountOrConvenio);
+      return isAccepted && hasValidData;
+    });
+
+    console.log(`✅ Few-Shot Learning: ${acceptedRecords.length} registros ACEPTADOS con datos válidos`);
+
+    if (acceptedRecords.length === 0) {
+      console.log('⚠️ Few-Shot Learning: No hay registros ACEPTADOS para usar como ejemplos');
+      return '';
+    }
+
     // Si hay tipo de recibo específico, filtrar por ese tipo primero
-    let relevantRecords = receiptType 
+    let relevantRecords = receiptType
       ? acceptedRecords.filter(r => r.receiptType === receiptType)
       : acceptedRecords;
-    
+
     // Si no hay registros del tipo específico, usar todos
     if (relevantRecords.length === 0) {
       relevantRecords = acceptedRecords;
     }
-    
+
     // Tomar máximo 3 ejemplos más recientes
     const examples = relevantRecords
       .sort((a, b) => (b.trainedAt || 0) - (a.trainedAt || 0))
       .slice(0, 3);
-    
+
     if (examples.length === 0) return '';
-    
+
+    console.log(`🎓 Few-Shot Learning: Usando ${examples.length} ejemplos para el análisis`);
+    examples.forEach((ex, i) => {
+      console.log(`   Ejemplo ${i + 1}: ${ex.receiptType} - ${ex.correctData?.bankName} - $${ex.correctData?.amount}`);
+    });
+
     // Construir texto de ejemplos
     const examplesText = examples.map((record, index) => {
-      const data = record.correctData;
+      const data = record.correctData || {};
       return `
         📚 EJEMPLO DE ENTRENAMIENTO ${index + 1} (${record.receiptType}):
-        Banco: ${data.bankName}
-        Cuenta/Convenio: ${data.accountOrConvenio}
-        Monto: ${data.amount}
-        Fecha: ${data.date}
+        Banco: ${data.bankName || 'No especificado'}
+        Cuenta/Convenio: ${data.accountOrConvenio || 'No especificado'}
+        Monto: ${data.amount || 0}
+        Fecha: ${data.date || 'No especificada'}
         ${data.rrn ? `RRN: ${data.rrn}` : ''}
         ${data.recibo ? `RECIBO: ${data.recibo}` : ''}
         ${data.apro ? `APRO: ${data.apro}` : ''}
@@ -74,27 +94,27 @@ const getTrainingExamples = (receiptType?: ReceiptType): string => {
         ${data.comprobante ? `COMPROBANTE: ${data.comprobante}` : ''}
         ${data.paymentReference ? `Referencia Pago: ${data.paymentReference}` : ''}
         ${data.clientCode ? `Código Cliente: ${data.clientCode}` : ''}
-        
-        📝 Razón del entrenador: "${record.decisionReason}"
+
+        📝 Razón del entrenador: "${record.decisionReason || 'Sin razón especificada'}"
         ${record.notes ? `📌 Notas: "${record.notes}"` : ''}
       `.trim();
     }).join('\n\n');
-    
+
     return `
-    
+
     🎓 APRENDIZAJE PREVIO - APLICA ESTAS REGLAS:
-    
-    Has sido entrenado con estos ${examples.length} ejemplos correctos. 
+
+    Has sido entrenado con estos ${examples.length} ejemplos correctos.
     DEBES seguir estos patrones y reglas aprendidas:
-    
+
     ${examplesText}
-    
+
     ⚠️ IMPORTANTE: Aplica las mismas reglas y patrones de estos ejemplos al analizar la nueva imagen.
     Si encuentras un recibo similar a alguno de estos ejemplos, usa la misma lógica de extracción.
     `;
-    
+
   } catch (error) {
-    console.warn('Error al cargar ejemplos de entrenamiento:', error);
+    console.warn('❌ Error al cargar ejemplos de entrenamiento:', error);
     return '';
   }
 };

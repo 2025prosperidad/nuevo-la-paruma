@@ -189,8 +189,50 @@ const App: React.FC = () => {
     setIsLoadingTraining(true);
     try {
       const data = await fetchTrainingFromSheets(url);
-      setTrainingRecords(data);
-      console.log(`Datos de entrenamiento cargados: ${data.length} registros`);
+
+      // CRÍTICO: Fusionar datos de Sheets con localStorage para no perder entrenamientos locales
+      const localDataRaw = localStorage.getItem('training_records');
+      let localData: TrainingRecord[] = [];
+      if (localDataRaw) {
+        try {
+          localData = JSON.parse(localDataRaw);
+        } catch (e) {
+          console.warn('Error parsing local training records:', e);
+        }
+      }
+
+      // Crear mapa de IDs para evitar duplicados
+      const mergedMap = new Map<string, TrainingRecord>();
+
+      // Primero agregar datos de Sheets
+      data.forEach((record: TrainingRecord) => {
+        if (record.id) {
+          mergedMap.set(record.id, record);
+        }
+      });
+
+      // Luego agregar/actualizar con datos locales (tienen prioridad si son más recientes)
+      localData.forEach((record: TrainingRecord) => {
+        if (record.id) {
+          const existing = mergedMap.get(record.id);
+          // Si el registro local es más reciente, usarlo
+          if (!existing || (record.trainedAt && existing.trainedAt && record.trainedAt > existing.trainedAt)) {
+            mergedMap.set(record.id, record);
+          }
+        }
+      });
+
+      const mergedData = Array.from(mergedMap.values());
+
+      // Ordenar por fecha de entrenamiento (más recientes primero)
+      mergedData.sort((a, b) => (b.trainedAt || 0) - (a.trainedAt || 0));
+
+      setTrainingRecords(mergedData);
+
+      // CRÍTICO: Guardar también en localStorage para que getTrainingExamples() los encuentre
+      localStorage.setItem('training_records', JSON.stringify(mergedData));
+
+      console.log(`Datos de entrenamiento cargados y fusionados: ${mergedData.length} registros (${data.length} de Sheets, ${localData.length} locales)`);
     } catch (err: any) {
       console.error("Failed to load training data", err);
     } finally {
@@ -280,13 +322,17 @@ const App: React.FC = () => {
       notes: trainingData.notes
     };
 
-    setTrainingRecords(prev => [newTrainingRecord, ...prev]);
+    // CRÍTICO: Usar callback para obtener el estado actualizado correctamente
+    setTrainingRecords(prev => {
+      const updatedRecords = [newTrainingRecord, ...prev];
+      // Guardar en localStorage DENTRO del callback para tener el estado correcto
+      localStorage.setItem('training_records', JSON.stringify(updatedRecords));
+      console.log(`✅ Entrenamiento guardado en localStorage: ${updatedRecords.length} registros totales`);
+      return updatedRecords;
+    });
+
     setTrainingModalOpen(false);
     setRecordToTrain(null);
-
-    // Guardar automáticamente en localStorage
-    const updatedRecords = [newTrainingRecord, ...trainingRecords];
-    localStorage.setItem('training_records', JSON.stringify(updatedRecords));
 
     alert(`✅ Registro de entrenamiento guardado localmente.\n\nUsa el botón "Sincronizar" para enviar a Google Sheets.`);
   };
