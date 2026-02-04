@@ -697,13 +697,45 @@ function saveTrainingData(trainingRecords) {
     const sheet = getOrCreateTrainingSheet();
     ensureTrainingHeaders(sheet);
     
+    // Obtener todos los registros existentes para verificar duplicados
+    const existingData = sheet.getDataRange().getValues();
+    const existingIds = new Set();
+    const existingHashes = new Set();
+    
+    // Si hay datos, extraer IDs y hashes existentes (saltar header)
+    if (existingData.length > 1) {
+      for (let i = 1; i < existingData.length; i++) {
+        const row = existingData[i];
+        const id = row[0]; // Columna ID
+        const hash = row[29]; // Columna Hash Imagen (última columna)
+        if (id) existingIds.add(String(id));
+        if (hash) existingHashes.add(String(hash));
+      }
+    }
+    
     let saved = 0;
+    let skipped = 0;
     
     trainingRecords.forEach((record, index) => {
       try {
         // Validar que tenga los campos mínimos
         if (!record.id || !record.decision) {
           Logger.log('⚠️ Registro ' + index + ' sin ID o decisión. Saltando...');
+          skipped++;
+          return;
+        }
+        
+        // Verificar duplicados por ID
+        if (existingIds.has(String(record.id))) {
+          Logger.log('⚠️ Registro ' + index + ' con ID duplicado: ' + record.id + '. Saltando...');
+          skipped++;
+          return;
+        }
+        
+        // Verificar duplicados por imageHash
+        if (record.imageHash && existingHashes.has(String(record.imageHash))) {
+          Logger.log('⚠️ Registro ' + index + ' con imageHash duplicado. Saltando...');
+          skipped++;
           return;
         }
         
@@ -762,15 +794,19 @@ function saveTrainingData(trainingRecords) {
         ];
         
         sheet.appendRow(row);
+        // Agregar a los sets para evitar duplicados en el mismo batch
+        existingIds.add(String(record.id));
+        if (record.imageHash) existingHashes.add(String(record.imageHash));
         saved++;
         
       } catch (rowError) {
         Logger.log('❌ Error procesando registro de entrenamiento ' + index + ': ' + rowError.toString());
+        skipped++;
       }
     });
     
-    Logger.log('✅ Total registros de entrenamiento guardados: ' + saved);
-    return { saved };
+    Logger.log('✅ Total registros de entrenamiento guardados: ' + saved + ', omitidos (duplicados): ' + skipped);
+    return { saved, skipped };
     
   } catch (error) {
     Logger.log('❌ Error en saveTrainingData: ' + error.toString());

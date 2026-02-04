@@ -189,10 +189,44 @@ const App: React.FC = () => {
     setIsLoadingTraining(true);
     try {
       const data = await fetchTrainingFromSheets(url);
-      setTrainingRecords(data);
-      console.log(`Datos de entrenamiento cargados: ${data.length} registros`);
+      // Eliminar duplicados por imageHash o ID
+      const uniqueData: TrainingRecord[] = [];
+      const seenHashes = new Set<string>();
+      const seenIds = new Set<string>();
+      
+      for (const record of data) {
+        // Verificar por ID primero
+        if (record.id && seenIds.has(record.id)) {
+          continue;
+        }
+        if (record.id) seenIds.add(record.id);
+        
+        // Verificar por imageHash
+        if (record.imageHash && seenHashes.has(record.imageHash)) {
+          continue;
+        }
+        if (record.imageHash) seenHashes.add(record.imageHash);
+        
+        uniqueData.push(record);
+      }
+      
+      setTrainingRecords(uniqueData);
+      // Guardar también en localStorage para uso offline
+      localStorage.setItem('training_records', JSON.stringify(uniqueData));
+      console.log(`Datos de entrenamiento cargados desde Sheets: ${uniqueData.length} registros únicos`);
     } catch (err: any) {
       console.error("Failed to load training data", err);
+      // Si falla, intentar cargar desde localStorage
+      const saved = localStorage.getItem('training_records');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setTrainingRecords(parsed);
+          console.log(`Datos de entrenamiento cargados desde localStorage: ${parsed.length} registros`);
+        } catch (e) {
+          console.error('Error parsing training records from localStorage', e);
+        }
+      }
     } finally {
       setIsLoadingTraining(false);
     }
@@ -230,7 +264,7 @@ const App: React.FC = () => {
   };
 
   // 8. Guardar entrenamiento
-  const handleSaveTraining = (trainingData: {
+  const handleSaveTraining = async (trainingData: {
     decision: TrainingDecision;
     decisionReason: string;
     correctData: ExtractedData;
@@ -239,6 +273,18 @@ const App: React.FC = () => {
     trainedBy: string;
   }) => {
     if (!recordToTrain) return;
+
+    // Verificar si ya existe un entrenamiento con el mismo imageHash
+    if (recordToTrain.imageHash) {
+      const existingTraining = trainingRecords.find(r => r.imageHash === recordToTrain.imageHash);
+      if (existingTraining) {
+        if (!confirm(`⚠️ Ya existe un entrenamiento para esta imagen.\n\n¿Deseas reemplazarlo?`)) {
+          return;
+        }
+        // Eliminar el entrenamiento existente
+        setTrainingRecords(prev => prev.filter(r => r.imageHash !== recordToTrain.imageHash));
+      }
+    }
 
     const newTrainingRecord: TrainingRecord = {
       id: crypto.randomUUID(),
@@ -280,15 +326,31 @@ const App: React.FC = () => {
       notes: trainingData.notes
     };
 
+    // Actualizar estado
     setTrainingRecords(prev => [newTrainingRecord, ...prev]);
     setTrainingModalOpen(false);
     setRecordToTrain(null);
 
     // Guardar automáticamente en localStorage
-    const updatedRecords = [newTrainingRecord, ...trainingRecords];
+    const updatedRecords = [newTrainingRecord, ...trainingRecords.filter(r => !r.imageHash || r.imageHash !== recordToTrain.imageHash)];
     localStorage.setItem('training_records', JSON.stringify(updatedRecords));
 
-    alert(`✅ Registro de entrenamiento guardado localmente.\n\nUsa el botón "Sincronizar" para enviar a Google Sheets.`);
+    // Guardar automáticamente en Google Sheets
+    if (scriptUrl) {
+      try {
+        const result = await saveTrainingToSheets([newTrainingRecord], scriptUrl);
+        if (result.success) {
+          alert(`✅ Entrenamiento guardado y sincronizado con Google Sheets.`);
+        } else {
+          alert(`✅ Entrenamiento guardado localmente.\n\n⚠️ Error al sincronizar: ${result.message}`);
+        }
+      } catch (err: any) {
+        console.error("Error saving training to Sheets:", err);
+        alert(`✅ Entrenamiento guardado localmente.\n\n⚠️ Error al sincronizar: ${err.message || 'Error desconocido'}`);
+      }
+    } else {
+      alert(`✅ Entrenamiento guardado localmente.\n\n⚠️ URL del Script no configurada. Configúrala para sincronizar automáticamente.`);
+    }
   };
 
   // 9. Eliminar registro de entrenamiento
@@ -316,39 +378,44 @@ const App: React.FC = () => {
     alert(`✅ Dataset exportado: ${trainingRecords.length} registros`);
   };
 
-  // 11. Cargar datos de entrenamiento desde localStorage al iniciar
+  // 11. Cargar datos de entrenamiento desde localStorage al iniciar (solo si no se cargaron desde Sheets)
+  // Esta función se ejecuta solo si loadTrainingData falla o no hay scriptUrl
   useEffect(() => {
-    const saved = localStorage.getItem('training_records');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        // Validar que los datos tengan la estructura correcta
-        const validRecords = parsed.filter((record: any) => {
-          return record &&
-            record.id &&
-            record.decision &&
-            record.correctData &&
-            record.aiExtractedData &&
-            typeof record.correctData === 'object' &&
-            typeof record.aiExtractedData === 'object';
-        });
+    // Solo cargar desde localStorage si no hay scriptUrl o si loadTrainingData no se ha ejecutado aún
+    // loadTrainingData ya maneja la carga desde Sheets y localStorage como fallback
+    if (!scriptUrl) {
+      const saved = localStorage.getItem('training_records');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          // Validar que los datos tengan la estructura correcta
+          const validRecords = parsed.filter((record: any) => {
+            return record &&
+              record.id &&
+              record.decision &&
+              record.correctData &&
+              record.aiExtractedData &&
+              typeof record.correctData === 'object' &&
+              typeof record.aiExtractedData === 'object';
+          });
 
-        if (validRecords.length !== parsed.length) {
-          console.warn(`Se encontraron ${parsed.length - validRecords.length} registros corruptos que fueron eliminados`);
-          // Guardar solo los registros válidos
-          localStorage.setItem('training_records', JSON.stringify(validRecords));
+          if (validRecords.length !== parsed.length) {
+            console.warn(`Se encontraron ${parsed.length - validRecords.length} registros corruptos que fueron eliminados`);
+            // Guardar solo los registros válidos
+            localStorage.setItem('training_records', JSON.stringify(validRecords));
+          }
+
+          setTrainingRecords(validRecords);
+          console.log(`Datos de entrenamiento cargados desde localStorage: ${validRecords.length} registros`);
+        } catch (e) {
+          console.error('Error parsing training records from localStorage', e);
+          // Limpiar datos corruptos
+          localStorage.removeItem('training_records');
+          setTrainingRecords([]);
         }
-
-        setTrainingRecords(validRecords);
-        console.log(`Datos de entrenamiento cargados desde localStorage: ${validRecords.length} registros`);
-      } catch (e) {
-        console.error('Error parsing training records from localStorage', e);
-        // Limpiar datos corruptos
-        localStorage.removeItem('training_records');
-        setTrainingRecords([]);
       }
     }
-  }, []);
+  }, [scriptUrl]);
 
   // 12. Cargar configuración de tipos de recibo desde localStorage
   useEffect(() => {
@@ -497,23 +564,48 @@ const App: React.FC = () => {
     }
 
     // 0-D. CAPTURAS DE PANTALLA SIN NÚMERO DE RECIBO = REQUIERE AUTORIZACIÓN
+    // PERO: Verificar primero si hay un entrenamiento que dice que debe aceptarse
     const hasPhysicalReceiptNumber = Boolean(data.rrn || data.recibo || data.apro);
     const hasAnyTransactionId = Boolean(data.rrn || data.recibo || data.apro || data.operacion || data.comprobante || data.uniqueTransactionId);
 
     if (data.isScreenshot && !hasPhysicalReceiptNumber) {
-      // Es una captura de pantalla sin número de recibo físico
-      // Puede tener número de operación pero necesita autorización humana
-      if (!hasAnyTransactionId) {
+      // Verificar si hay un entrenamiento que dice que este tipo de recibo debe aceptarse
+      const receiptType = detectReceiptType(data);
+      const matchingTraining = trainingRecords.find(tr => {
+        // Buscar por tipo de recibo y decisión ACCEPT
+        if (tr.receiptType === receiptType && tr.decision === TrainingDecision.ACCEPT) {
+          // Verificar si es similar (mismo banco, mismo tipo de cuenta/convenio)
+          const trainingData = tr.correctData;
+          const sameBank = trainingData.bankName?.toLowerCase() === data.bankName?.toLowerCase();
+          const sameAccount = trainingData.accountOrConvenio === data.accountOrConvenio;
+          
+          // Si tiene comprobante, verificar que sea del mismo tipo
+          const hasComprobante = Boolean(data.comprobante || trainingData.comprobante);
+          
+          return sameBank && (sameAccount || hasComprobante);
+        }
+        return false;
+      });
+
+      // Si hay un entrenamiento que dice ACCEPT, no pedir autorización
+      if (matchingTraining) {
+        console.log('✅ Encontrado entrenamiento que indica aceptar este tipo de recibo. No se requiere autorización.');
+        // Continuar con la validación normal, no marcar como requiere autorización
+      } else {
+        // Es una captura de pantalla sin número de recibo físico
+        // Puede tener número de operación pero necesita autorización humana
+        if (!hasAnyTransactionId) {
+          return {
+            status: ValidationStatus.MISSING_RECEIPT_NUMBER,
+            message: '📱 REQUIERE AUTORIZACIÓN: Captura de pantalla sin número de recibo. Suba el certificado de autorización.'
+          };
+        }
+        // Tiene operación/comprobante pero no recibo físico - también necesita revisión
         return {
-          status: ValidationStatus.MISSING_RECEIPT_NUMBER,
-          message: '📱 REQUIERE AUTORIZACIÓN: Captura de pantalla sin número de recibo. Suba el certificado de autorización.'
+          status: ValidationStatus.REQUIRES_AUTHORIZATION,
+          message: '📱 REQUIERE AUTORIZACIÓN: Captura de app sin recibo físico. Suba documento de autorización para validar.'
         };
       }
-      // Tiene operación/comprobante pero no recibo físico - también necesita revisión
-      return {
-        status: ValidationStatus.REQUIRES_AUTHORIZATION,
-        message: '📱 REQUIERE AUTORIZACIÓN: Captura de app sin recibo físico. Suba documento de autorización para validar.'
-      };
     }
 
     // =====================================================
@@ -1250,18 +1342,11 @@ const App: React.FC = () => {
                 </p>
 
                 <button
-                  onClick={syncTrainingToSheets}
-                  className="w-full bg-brand-600 text-white py-2 rounded-lg hover:bg-brand-700 transition-colors mb-3 font-semibold"
-                  disabled={trainingRecords.length === 0}
-                >
-                  📤 Sincronizar con Sheets
-                </button>
-
-                <button
                   onClick={() => loadTrainingData()}
                   className="w-full bg-brand-100 text-brand-700 py-2 rounded-lg hover:bg-brand-200 transition-colors mb-3"
+                  disabled={isLoadingTraining}
                 >
-                  📥 Cargar desde Sheets
+                  {isLoadingTraining ? '⏳ Cargando...' : '📥 Actualizar desde Sheets'}
                 </button>
 
                 <button
@@ -1272,6 +1357,11 @@ const App: React.FC = () => {
                   💾 Exportar JSON
                 </button>
 
+                <div className="mt-4 p-3 bg-green-50 rounded-lg text-xs text-green-800">
+                  <strong>✅ Sincronización Automática:</strong>
+                  <p className="mt-1">Los entrenamientos se guardan automáticamente en Google Sheets cuando los creas.</p>
+                </div>
+
                 <div className="mt-4 p-3 bg-yellow-50 rounded-lg text-xs text-yellow-800">
                   <strong>💡 Cómo entrenar:</strong>
                   <ol className="mt-2 space-y-1 list-decimal pl-4">
@@ -1279,7 +1369,7 @@ const App: React.FC = () => {
                     <li>Haz clic en "🎓 Entrenar IA"</li>
                     <li>Corrige los datos si hay errores</li>
                     <li>Marca como ACEPTAR o RECHAZAR</li>
-                    <li>Sincroniza con Sheets</li>
+                    <li>Se guarda automáticamente en Sheets</li>
                   </ol>
                 </div>
               </div>
