@@ -185,12 +185,13 @@ export async function analyzeReceipt(
 
 /**
  * Calcular nivel de acuerdo entre dos resultados (0-100)
+ * Optimizado para tolerar diferencias de formato menores
  */
 function calculateAgreement(r1: ExtractedData, r2: ExtractedData): number {
     let agreements = 0;
     let comparisons = 0;
 
-    // Comparar campos críticos
+    // Campos críticos para validación de dinero
     const criticalFields: (keyof ExtractedData)[] = [
         'amount',
         'date',
@@ -205,15 +206,34 @@ function calculateAgreement(r1: ExtractedData, r2: ExtractedData): number {
         const v1 = r1[field];
         const v2 = r2[field];
 
-        // Solo comparar si ambos tienen valor
-        if (v1 && v2) {
+        // Solo comparar si al menos uno tiene valor
+        if (v1 || v2) {
             comparisons++;
 
-            // Normalizar para comparación
-            const normalized1 = String(v1).replace(/\s/g, '').toLowerCase();
-            const normalized2 = String(v2).replace(/\s/g, '').toLowerCase();
+            // Si uno es nulo y el otro no, es desacuerdo
+            if (!v1 || !v2) continue;
 
-            if (normalized1 === normalized2) {
+            // Normalización inteligente según el tipo de campo
+            let s1 = String(v1).toLowerCase().trim();
+            let s2 = String(v2).toLowerCase().trim();
+
+            // 1. Normalización para números (monto, comprobante, etc.)
+            if (field === 'amount' || field === 'comprobante' || field === 'operacion' || field === 'rrn' || field === 'accountOrConvenio') {
+                s1 = s1.replace(/\D/g, '').replace(/^0+/, ''); // Solo dígitos y sin ceros a la izquierda
+                s2 = s2.replace(/\D/g, '').replace(/^0+/, '');
+            }
+            // 2. Normalización para fechas (YYYY-MM-DD vs variantes)
+            else if (field === 'date') {
+                s1 = s1.replace(/[-/]/g, ''); // Quitar separadores
+                s2 = s2.replace(/[-/]/g, '');
+            }
+            // 3. Normalización general (quitar espacios sobrantes)
+            else {
+                s1 = s1.replace(/\s+/g, '');
+                s2 = s2.replace(/\s+/g, '');
+            }
+
+            if (s1 === s2 && s1 !== '') {
                 agreements++;
             }
         }
