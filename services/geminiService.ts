@@ -33,29 +33,29 @@ const getTrainingExamples = (receiptType?: ReceiptType): string => {
   try {
     const trainingDataRaw = localStorage.getItem('training_records');
     if (!trainingDataRaw) return '';
-    
+
     const allTrainingRecords: TrainingRecord[] = JSON.parse(trainingDataRaw);
-    
+
     // Filtrar solo registros aceptados
     const acceptedRecords = allTrainingRecords.filter(r => r.decision === 'ACCEPT');
-    
+
     if (acceptedRecords.length === 0) return '';
-    
+
     // Si hay tipo de recibo específico, filtrar por ese tipo primero
-    let relevantRecords = receiptType 
+    let relevantRecords = receiptType
       ? acceptedRecords.filter(r => r.receiptType === receiptType)
       : acceptedRecords;
-    
+
     // Si no hay registros del tipo específico, usar todos
     if (relevantRecords.length === 0) {
       relevantRecords = acceptedRecords;
     }
-    
+
     // ELIMINAR DUPLICADOS: Usar imageHash o combinación de campos únicos
     const uniqueRecords: TrainingRecord[] = [];
     const seenHashes = new Set<string>();
     const seenKeys = new Set<string>();
-    
+
     for (const record of relevantRecords) {
       // Primero intentar por hash de imagen (más preciso)
       if (record.imageHash) {
@@ -64,26 +64,26 @@ const getTrainingExamples = (receiptType?: ReceiptType): string => {
         }
         seenHashes.add(record.imageHash);
       }
-      
+
       // Si no hay hash, usar combinación de campos únicos
       const uniqueKey = `${record.receiptType}_${record.correctData.bankName}_${record.correctData.comprobante || record.correctData.operacion || record.correctData.rrn || ''}_${record.correctData.amount}_${record.correctData.date}`;
       if (seenKeys.has(uniqueKey)) {
         continue; // Duplicado por campos
       }
       seenKeys.add(uniqueKey);
-      
+
       uniqueRecords.push(record);
     }
-    
+
     // Tomar máximo 3 ejemplos más recientes (sin duplicados)
     const examples = uniqueRecords
       .sort((a, b) => (b.trainedAt || 0) - (a.trainedAt || 0))
       .slice(0, 3);
-    
+
     if (examples.length === 0) return '';
-    
+
     console.log(`📚 Cargando ${examples.length} ejemplos de entrenamiento${receiptType ? ` para tipo ${receiptType}` : ''}`);
-    
+
     // Construir texto de ejemplos
     const examplesText = examples.map((record, index) => {
       const data = record.correctData;
@@ -105,7 +105,7 @@ const getTrainingExamples = (receiptType?: ReceiptType): string => {
         ${record.notes ? `📌 Notas: "${record.notes}"` : ''}
       `.trim();
     }).join('\n\n');
-    
+
     return `
     
     🎓 APRENDIZAJE PREVIO - APLICA ESTAS REGLAS:
@@ -118,7 +118,7 @@ const getTrainingExamples = (receiptType?: ReceiptType): string => {
     ⚠️ IMPORTANTE: Aplica las mismas reglas y patrones de estos ejemplos al analizar la nueva imagen.
     Si encuentras un recibo similar a alguno de estos ejemplos, usa la misma lógica de extracción.
     `;
-    
+
   } catch (error) {
     console.warn('Error al cargar ejemplos de entrenamiento:', error);
     return '';
@@ -127,8 +127,8 @@ const getTrainingExamples = (receiptType?: ReceiptType): string => {
 
 // Función interna para una sola llamada a la IA
 const singleAnalysis = async (
-  base64Image: string, 
-  mimeType: string, 
+  base64Image: string,
+  mimeType: string,
   attemptNumber: number,
   trainingContext?: string
 ): Promise<ExtractedData> => {
@@ -140,11 +140,30 @@ const singleAnalysis = async (
 
 ${trainingContext || ''}
 
-    ${trainingContext ? '🎯 ATENCIÓN CRÍTICA: Los ejemplos de entrenamiento mostrados arriba son REGLAS OBLIGATORIAS que DEBES seguir. Si encuentras un recibo similar a alguno de esos ejemplos, aplica EXACTAMENTE las mismas reglas, patrones y lógica de extracción indicadas en la "Razón del entrenador" y "Notas". NO pidas autorización si el recibo coincide con un ejemplo de entrenamiento aceptado.' : ''}
+    ${trainingContext ? `🎯 ATENCIÓN CRÍTICA - REGLAS DE ENTRENAMIENTO OBLIGATORIAS:
+
+Los ejemplos de entrenamiento mostrados arriba son REGLAS OBLIGATORIAS que DEBES seguir EXACTAMENTE.
+
+⚠️ REGLAS IMPORTANTES (APLICAN A TODOS LOS TIPOS DE RECIBO Y BANCOS):
+1. Si encuentras un recibo que coincide con un ejemplo de entrenamiento ACCEPT y tiene:
+   - Valor legible (amount > 0)
+   - Fecha legible (date no vacío)
+   - Al menos un identificador de transacción (comprobante, operacion, rrn, recibo, apro) O cuenta/convenio legible
+   
+   ENTONCES: DEBES extraer los datos normalmente y NO marcar como "requiere autorización".
+   Estos recibos SON VÁLIDOS según el entrenamiento, independientemente del banco o tipo.
+
+2. Aplica EXACTAMENTE las mismas reglas, patrones y lógica indicadas en la "Razón del entrenador" y "Notas" de cada ejemplo.
+
+3. NO pidas autorización si el recibo cumple las condiciones de los entrenamientos aceptados.
+
+4. Los recibos digitales (capturas de app) con comprobante/operacion son SOPORTES DIGITALES VÁLIDOS según el entrenamiento.
+
+5. Esta regla aplica para TODOS los bancos y tipos de recibo: Bancolombia, Nequi, Banco Agrario, Davivienda, Banco de Bogotá, Occidente, y cualquier otro banco que aparezca en los ejemplos.
+
+6. Si el recibo es similar a un ejemplo de entrenamiento pero de un banco diferente, aplica la misma lógica si el formato es equivalente.` : ''}
 
     ⚠️ CRITICAL EXTRACTION RULES - READ CAREFULLY:
-    
-    ${trainingContext ? '🎯 ATENCIÓN: Los ejemplos de entrenamiento arriba son REGLAS OBLIGATORIAS. Si encuentras un recibo similar, DEBES aplicar exactamente las mismas reglas y patrones mostrados en los ejemplos.' : ''}
     
     🔒 SEGURIDAD ANTI-FRAUDE - MÁXIMA PRIORIDAD:
     
@@ -408,7 +427,7 @@ ${trainingContext || ''}
             amount: { type: Type.NUMBER, description: "Total amount" },
             date: { type: Type.STRING, description: "YYYY-MM-DD format" },
             time: { type: Type.STRING, description: "HH:MM format" },
-            
+
             // Transaction IDs
             uniqueTransactionId: { type: Type.STRING, description: "Primary transaction ID" },
             rrn: { type: Type.STRING, description: "RRN number from Redeban" },
@@ -416,24 +435,24 @@ ${trainingContext || ''}
             apro: { type: Type.STRING, description: "APRO/Approval code" },
             operacion: { type: Type.STRING, description: "Operation number" },
             comprobante: { type: Type.STRING, description: "Comprobante number" },
-            
+
             // Client references
             paymentReference: { type: Type.STRING, description: "Client Ref, Cedula, NIT, or last 4 digits of credit card" },
             clientCode: { type: Type.STRING, description: "Client code (e.g., Cervunion code 10813353)" },
-            
+
             // Credit card payment
             creditCardLast4: { type: Type.STRING, description: "Last 4 digits of credit card if payment is by card" },
             isCreditCardPayment: { type: Type.BOOLEAN, description: "True if payment was made with credit card" },
-            
+
             // Confidence and quality
             confidenceScore: { type: Type.NUMBER, description: "0-100 confidence in extracted numbers" },
             hasAmbiguousNumbers: { type: Type.BOOLEAN, description: "True if any number might be misread" },
             ambiguousFields: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of uncertain fields" },
-            
+
             // Document type
             isScreenshot: { type: Type.BOOLEAN, description: "True if app screenshot" },
             hasPhysicalReceipt: { type: Type.BOOLEAN, description: "True if has physical receipt number (RRN/RECIBO/APRO)" },
-            
+
             imageQualityScore: { type: Type.NUMBER, description: "0-100 image quality" },
             isReadable: { type: Type.BOOLEAN, description: "True if legible" },
             rawText: { type: Type.STRING, description: "Key extracted text for debug" }
@@ -447,12 +466,12 @@ ${trainingContext || ''}
     if (!resultText) throw new Error("No response from AI");
 
     const data = JSON.parse(resultText) as ExtractedData;
-    
+
     // Ensure arrays are properly initialized
     if (!data.ambiguousFields) {
       data.ambiguousFields = [];
     }
-    
+
     return data;
 
   } catch (error: any) {
@@ -513,7 +532,7 @@ const numbersMatch = (a: string | null | undefined, b: string | null | undefined
 const detectReceiptTypeFromData = (data: ExtractedData): ReceiptType => {
   const text = data.rawText?.toLowerCase() || '';
   const bank = data.bankName?.toLowerCase() || '';
-  
+
   if (text.includes('redeban') || text.includes('corresponsal')) return ReceiptType.REDEBAN_THERMAL;
   if (bank.includes('bancolombia') && data.isScreenshot) return ReceiptType.BANCOLOMBIA_APP;
   if (bank.includes('nequi') || text.includes('nequi')) return ReceiptType.NEQUI;
@@ -522,20 +541,20 @@ const detectReceiptTypeFromData = (data: ExtractedData): ReceiptType => {
   if (bank.includes('bogota') || bank.includes('bogotá')) return ReceiptType.BANCO_BOGOTA;
   if (bank.includes('occidente')) return ReceiptType.OCCIDENTE;
   if (data.isCreditCardPayment) return ReceiptType.CREDIT_CARD;
-  
+
   return ReceiptType.OTHER;
 };
 
 // Función principal con TRIPLE VERIFICACIÓN
 export const analyzeConsignmentImage = async (base64Image: string, mimeType: string = 'image/jpeg'): Promise<ExtractedData> => {
   console.log('🔍 Iniciando TRIPLE VERIFICACIÓN de imagen...');
-  
+
   // PASO 1: Hacer un análisis rápido primero para detectar el tipo de recibo
   console.log('🔍 Paso 1: Detectando tipo de recibo...');
   const quickResult = await singleAnalysis(base64Image, mimeType, 0, '');
   const detectedReceiptType = detectReceiptTypeFromData(quickResult);
   console.log(`✅ Tipo de recibo detectado: ${detectedReceiptType}`);
-  
+
   // PASO 2: Obtener contexto de entrenamiento filtrado por tipo
   const trainingContext = getTrainingExamples(detectedReceiptType);
   if (trainingContext) {
@@ -543,18 +562,18 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
   } else {
     console.log('⚠️ No se encontraron entrenamientos para este tipo de recibo');
   }
-  
+
   // PASO 3: Hacer TRES análisis completos de la misma imagen en paralelo con contexto de entrenamiento
   const [result1, result2, result3] = await Promise.all([
     singleAnalysis(base64Image, mimeType, 1, trainingContext),
     singleAnalysis(base64Image, mimeType, 2, trainingContext),
     singleAnalysis(base64Image, mimeType, 3, trainingContext)
   ]);
-  
+
   console.log('📊 Análisis 1:', { operacion: result1.operacion, amount: result1.amount, confidence: result1.confidenceScore });
   console.log('📊 Análisis 2:', { operacion: result2.operacion, amount: result2.amount, confidence: result2.confidenceScore });
   console.log('📊 Análisis 3:', { operacion: result3.operacion, amount: result3.amount, confidence: result3.confidenceScore });
-  
+
   // Función para normalizar valores alfanuméricos (preserva letras importantes como AQ)
   const normalizeValue = (v: string | null | undefined): string => {
     if (!v) return '';
@@ -562,42 +581,42 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
     // PRESERVAR letras como "AQ" que son parte del código
     return String(v).toUpperCase().replace(/[\s\-\.]/g, '');
   };
-  
+
   // Función para encontrar el valor más común entre 3 resultados (votación por mayoría)
   const getMajorityValue = (v1: string | null | undefined, v2: string | null | undefined, v3: string | null | undefined): string | null => {
     const values = [normalizeValue(v1), normalizeValue(v2), normalizeValue(v3)];
-    
+
     // Si 2 o más coinciden, usar el valor original más largo/completo
     if (values[0] && values[0] === values[1]) return v1 || v2 || null;
     if (values[0] && values[0] === values[2]) return v1 || v3 || null;
     if (values[1] && values[1] === values[2]) return v2 || v3 || null;
-    
+
     // Verificar si hay coincidencia parcial (2 de 3 tienen el mismo contenido numérico)
     const numericOnly = values.map(v => v.replace(/\D/g, ''));
     if (numericOnly[0] && numericOnly[0] === numericOnly[1]) return v1 || v2 || null;
     if (numericOnly[0] && numericOnly[0] === numericOnly[2]) return v1 || v3 || null;
     if (numericOnly[1] && numericOnly[1] === numericOnly[2]) return v2 || v3 || null;
-    
+
     // Si todos son diferentes, hay discrepancia
     return null;
   };
-  
+
   // Verificar consenso en números críticos
   const operacionConsensus = getMajorityValue(result1.operacion, result2.operacion, result3.operacion);
   const rrnConsensus = getMajorityValue(result1.rrn, result2.rrn, result3.rrn);
   const reciboConsensus = getMajorityValue(result1.recibo, result2.recibo, result3.recibo);
   const aproConsensus = getMajorityValue(result1.apro, result2.apro, result3.apro);
   const comprobanteConsensus = getMajorityValue(result1.comprobante, result2.comprobante, result3.comprobante);
-  
+
   // Helper: Contar cuántos resultados tienen un valor para un campo
   const countNonEmpty = (v1: any, v2: any, v3: any): number => {
     return [v1, v2, v3].filter(v => v && String(v).trim() !== '').length;
   };
-  
+
   // Detectar campos sin consenso SOLO si al menos 2 de 3 análisis encontraron el campo
   // Esto evita marcar como "sin consenso" campos que no existen en el recibo
   const noConsensusFields: string[] = [];
-  
+
   // Solo verificar operacion si al menos 2 análisis la encontraron
   if (countNonEmpty(result1.operacion, result2.operacion, result3.operacion) >= 2 && !operacionConsensus) {
     noConsensusFields.push(`operacion (${result1.operacion || '-'}/${result2.operacion || '-'}/${result3.operacion || '-'})`);
@@ -618,27 +637,27 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
   if (countNonEmpty(result1.comprobante, result2.comprobante, result3.comprobante) >= 2 && !comprobanteConsensus) {
     noConsensusFields.push(`comprobante (${result1.comprobante || '-'}/${result2.comprobante || '-'}/${result3.comprobante || '-'})`);
   }
-  
+
   // Si hay campos sin consenso (3 valores diferentes), marcar como ambiguo
   // PERO: solo si son campos críticos (operacion, rrn, recibo)
-  const criticalNoConsensus = noConsensusFields.filter(f => 
+  const criticalNoConsensus = noConsensusFields.filter(f =>
     f.startsWith('operacion') || f.startsWith('rrn') || f.startsWith('recibo')
   );
-  
+
   if (criticalNoConsensus.length > 0) {
     console.warn('⚠️ SIN CONSENSO en campos CRÍTICOS:', criticalNoConsensus);
-    
+
     // Usar el resultado con mayor confianza como base
     const results = [result1, result2, result3];
-    const baseResult = results.reduce((best, current) => 
+    const baseResult = results.reduce((best, current) =>
       (current.confidenceScore || 0) > (best.confidenceScore || 0) ? current : best
     );
-    
+
     // Penalizar menos si solo hay 1 campo sin consenso
-    const penalizedScore = criticalNoConsensus.length === 1 
+    const penalizedScore = criticalNoConsensus.length === 1
       ? Math.max((baseResult.confidenceScore || 70) - 15, 55)  // Solo 1 campo: -15 puntos, mínimo 55
       : Math.min(baseResult.confidenceScore || 50, 50);         // Múltiples: máximo 50
-    
+
     return {
       ...baseResult,
       hasAmbiguousNumbers: true,
@@ -650,21 +669,21 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
       rawText: `${baseResult.rawText || ''} [TRIPLE VERIFICACIÓN: Sin consenso en ${criticalNoConsensus.join(', ')}]`
     };
   }
-  
+
   // Campos no críticos sin consenso (apro, comprobante) - no requiere verificación manual
   if (noConsensusFields.length > 0) {
     console.log('ℹ️ Sin consenso en campos NO críticos:', noConsensusFields);
   }
-  
+
   // ✅ HAY CONSENSO - Usar valores con mayoría
   console.log('✅ TRIPLE VERIFICACIÓN: Consenso alcanzado');
-  
+
   // Usar el resultado con mayor confianza como base y aplicar valores de consenso
   const results = [result1, result2, result3];
-  const bestResult = results.reduce((best, current) => 
+  const bestResult = results.reduce((best, current) =>
     (current.confidenceScore || 0) > (best.confidenceScore || 0) ? current : best
   );
-  
+
   // Construir resultado final con valores de consenso
   const finalResult: ExtractedData = {
     ...bestResult,
@@ -678,6 +697,6 @@ export const analyzeConsignmentImage = async (base64Image: string, mimeType: str
     hasAmbiguousNumbers: false,
     ambiguousFields: []
   };
-  
+
   return finalResult;
 };

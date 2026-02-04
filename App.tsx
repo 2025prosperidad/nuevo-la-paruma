@@ -502,6 +502,11 @@ const App: React.FC = () => {
     currentAccounts: ConfigItem[],
     currentConvenios: ConfigItem[]
   ): { status: ValidationStatus, message: string } => {
+    // DEBUG: Log para ver qué entrenamientos hay disponibles
+    console.log('🔍 Validando recibo. Entrenamientos disponibles:', trainingRecords.length);
+    if (trainingRecords.length > 0) {
+      console.log('📚 Tipos de entrenamiento:', trainingRecords.map(tr => `${tr.receiptType} (${tr.decision})`).join(', '));
+    }
 
     // =====================================================
     // 0. VALIDACIÓN POR TIPO DE RECIBO (PRIMERO)
@@ -563,44 +568,71 @@ const App: React.FC = () => {
       };
     }
 
-    // 0-D. CAPTURAS DE PANTALLA SIN NÚMERO DE RECIBO = REQUIERE AUTORIZACIÓN
-    // PERO: Verificar primero si hay un entrenamiento que dice que debe aceptarse
+    // 0-D. VALIDACIÓN GENÉRICA CON ENTRENAMIENTOS - APLICA A TODOS LOS TIPOS DE RECIBO
+    // Verificar si hay entrenamientos que indican que este tipo de recibo debe aceptarse
+    const receiptType = detectReceiptType(data);
     const hasPhysicalReceiptNumber = Boolean(data.rrn || data.recibo || data.apro);
     const hasAnyTransactionId = Boolean(data.rrn || data.recibo || data.apro || data.operacion || data.comprobante || data.uniqueTransactionId);
 
-    if (data.isScreenshot && !hasPhysicalReceiptNumber) {
-      // Verificar si hay un entrenamiento que dice que este tipo de recibo debe aceptarse
-      const receiptType = detectReceiptType(data);
-      const matchingTraining = trainingRecords.find(tr => {
-        // Buscar por tipo de recibo y decisión ACCEPT
-        if (tr.receiptType === receiptType && tr.decision === TrainingDecision.ACCEPT) {
-          // Verificar si es similar (mismo banco, mismo tipo de cuenta/convenio)
-          const trainingData = tr.correctData;
-          const sameBank = trainingData.bankName?.toLowerCase() === data.bankName?.toLowerCase();
-          const sameAccount = trainingData.accountOrConvenio === data.accountOrConvenio;
-          
-          // Si tiene comprobante, verificar que sea del mismo tipo
-          const hasComprobante = Boolean(data.comprobante || trainingData.comprobante);
-          
-          return sameBank && (sameAccount || hasComprobante);
-        }
-        return false;
+    console.log(`🔍 Validando recibo. Tipo: ${receiptType}, Banco: ${data.bankName}, isScreenshot: ${data.isScreenshot}, hasPhysicalReceipt: ${hasPhysicalReceiptNumber}`);
+    
+    // Buscar entrenamientos ACCEPT para este tipo de recibo (genérico para cualquier banco)
+    const acceptTrainings = trainingRecords.filter(tr => 
+      tr.receiptType === receiptType && tr.decision === TrainingDecision.ACCEPT
+    );
+    
+    console.log(`📚 Encontrados ${acceptTrainings.length} entrenamientos ACCEPT para tipo ${receiptType}`);
+    
+    // Si hay entrenamientos ACCEPT, verificar si el recibo cumple las condiciones
+    if (acceptTrainings.length > 0) {
+      // Verificar condiciones básicas según los entrenamientos:
+      // - Valor legible
+      // - Fecha legible
+      // - Al menos un identificador de transacción (comprobante, operacion, rrn, etc.) o cuenta/convenio
+      const hasRequiredData = Boolean(
+        data.amount && data.amount > 0 && // Valor legible
+        data.date && data.date.trim() !== '' && // Fecha legible
+        (hasAnyTransactionId || (data.accountOrConvenio && data.accountOrConvenio.trim() !== '')) // Identificador o cuenta/convenio
+      );
+      
+      console.log(`✅ Verificando condiciones del entrenamiento:`, {
+        hasAmount: Boolean(data.amount && data.amount > 0),
+        hasDate: Boolean(data.date && data.date.trim() !== ''),
+        hasTransactionId: hasAnyTransactionId,
+        hasAccountOrConvenio: Boolean(data.accountOrConvenio && data.accountOrConvenio.trim() !== ''),
+        hasRequiredData
       });
-
-      // Si hay un entrenamiento que dice ACCEPT, no pedir autorización
-      if (matchingTraining) {
-        console.log('✅ Encontrado entrenamiento que indica aceptar este tipo de recibo. No se requiere autorización.');
+      
+      if (hasRequiredData) {
+        console.log(`✅ Recibo cumple condiciones del entrenamiento para ${receiptType}. NO se requiere autorización.`);
         // Continuar con la validación normal, no marcar como requiere autorización
       } else {
-        // Es una captura de pantalla sin número de recibo físico
-        // Puede tener número de operación pero necesita autorización humana
+        console.log(`⚠️ Recibo NO cumple todas las condiciones del entrenamiento. Requiere autorización.`);
+        // Si es captura sin recibo físico y no cumple condiciones, pedir autorización
+        if (data.isScreenshot && !hasPhysicalReceiptNumber) {
+          if (!hasAnyTransactionId) {
+            return {
+              status: ValidationStatus.MISSING_RECEIPT_NUMBER,
+              message: '📱 REQUIERE AUTORIZACIÓN: Captura sin número de recibo. Suba el certificado de autorización.'
+            };
+          }
+          return {
+            status: ValidationStatus.REQUIRES_AUTHORIZATION,
+            message: '📱 REQUIERE AUTORIZACIÓN: Captura sin recibo físico. Suba documento de autorización para validar.'
+          };
+        }
+      }
+    } else {
+      // Si NO hay entrenamientos ACCEPT para este tipo, aplicar reglas por defecto
+      // Para capturas de pantalla sin recibo físico, pedir autorización
+      if (data.isScreenshot && !hasPhysicalReceiptNumber) {
+        console.log(`⚠️ No hay entrenamientos ACCEPT para ${receiptType}. Aplicando reglas por defecto.`);
         if (!hasAnyTransactionId) {
           return {
             status: ValidationStatus.MISSING_RECEIPT_NUMBER,
             message: '📱 REQUIERE AUTORIZACIÓN: Captura de pantalla sin número de recibo. Suba el certificado de autorización.'
           };
         }
-        // Tiene operación/comprobante pero no recibo físico - también necesita revisión
         return {
           status: ValidationStatus.REQUIRES_AUTHORIZATION,
           message: '📱 REQUIERE AUTORIZACIÓN: Captura de app sin recibo físico. Suba documento de autorización para validar.'
@@ -1056,7 +1088,7 @@ const App: React.FC = () => {
       setErrorMsg("Error inesperado.");
       setStatus(ProcessingStatus.ERROR);
     }
-  }, [localRecords, sheetRecords, allowedAccounts, allowedConvenios]);
+  }, [localRecords, sheetRecords, allowedAccounts, allowedConvenios, trainingRecords]);
 
   const handleSync = async () => {
     const validRecords = localRecords.filter(r => r.status === ValidationStatus.VALID);
