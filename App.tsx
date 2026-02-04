@@ -1555,6 +1555,7 @@ const App: React.FC = () => {
         isOpen={receiptTypeConfigOpen}
         onClose={() => setReceiptTypeConfigOpen(false)}
         onSave={handleSaveReceiptTypeConfig}
+        initialConfigs={receiptTypeConfigs}
       />
 
       <AuthorizationModal

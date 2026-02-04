@@ -5,7 +5,7 @@ interface ReceiptTypeConfigProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (configs: ReceiptTypeConfig[]) => void;
-  initialConfigs: ReceiptTypeConfig[];
+  initialConfigs?: ReceiptTypeConfig[];
 }
 
 const DEFAULT_CONFIGS: ReceiptTypeConfig[] = [
@@ -87,18 +87,18 @@ export const ReceiptTypeConfigModal: React.FC<ReceiptTypeConfigProps> = ({
   isOpen,
   onClose,
   onSave,
-  initialConfigs
+  initialConfigs = []
 }) => {
-  const [configs, setConfigs] = useState<ReceiptTypeConfig[]>(initialConfigs.length > 0 ? initialConfigs : DEFAULT_CONFIGS);
+  const [configs, setConfigs] = useState<ReceiptTypeConfig[]>((initialConfigs && initialConfigs.length > 0) ? initialConfigs : DEFAULT_CONFIGS);
 
   useEffect(() => {
-    if (initialConfigs.length > 0) {
+    if (initialConfigs && initialConfigs.length > 0) {
       setConfigs(initialConfigs);
     }
   }, [initialConfigs]);
 
   const updateConfig = (type: ReceiptType, updates: Partial<ReceiptTypeConfig>) => {
-    setConfigs(prev => prev.map(config => 
+    setConfigs(prev => prev.map(config =>
       config.type === type ? { ...config, ...updates } : config
     ));
   };
@@ -135,7 +135,7 @@ export const ReceiptTypeConfigModal: React.FC<ReceiptTypeConfigProps> = ({
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
             <h3 className="font-semibold text-yellow-900 mb-2">⚠️ Importante:</h3>
             <p className="text-sm text-yellow-800">
-              Esta configuración determina qué recibos son aceptados automáticamente. Los recibos que no cumplan 
+              Esta configuración determina qué recibos son aceptados automáticamente. Los recibos que no cumplan
               los requisitos serán rechazados o requerirán autorización manual.
             </p>
           </div>
