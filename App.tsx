@@ -527,9 +527,13 @@ const App: React.FC = () => {
     const text = data.rawText?.toLowerCase() || '';
     const bank = data.bankName?.toLowerCase() || '';
 
+    // Prioridad por palabras clave en el texto (más fiable que el nombre del banco)
+    if (text.includes('pago exitoso') || text.includes('transferencia exitosa') || text.includes('comprobante no.')) return ReceiptType.BANCOLOMBIA_APP;
     if (text.includes('redeban') || text.includes('corresponsal')) return ReceiptType.REDEBAN_THERMAL;
-    if (bank.includes('bancolombia') && data.isScreenshot) return ReceiptType.BANCOLOMBIA_APP;
-    if (bank.includes('nequi') || text.includes('nequi')) return ReceiptType.NEQUI;
+    if (text.includes('nequi')) return ReceiptType.NEQUI;
+
+    // Luego por nombre de banco si las palabras clave no fueron definitivas
+    if (bank.includes('bancolombia')) return ReceiptType.BANCOLOMBIA_APP;
     if (bank.includes('agrario')) return ReceiptType.BANCO_AGRARIO;
     if (bank.includes('davivienda')) return ReceiptType.DAVIVIENDA;
     if (bank.includes('bogota') || bank.includes('bogotá')) return ReceiptType.BANCO_BOGOTA;
@@ -626,77 +630,24 @@ const App: React.FC = () => {
 
     console.log(`📚 Encontrados ${acceptTrainings.length} entrenamientos ACCEPT para tipo ${receiptType}`);
 
-    // Si hay entrenamientos ACCEPT, verificar si el recibo cumple las condiciones
-    // Si cumple, marcar como "aprobado por entrenamiento" para saltar validaciones estrictas
+    // Si hay entrenamientos ACCEPT, verificar si el recibo cumple las condiciones básicas
     let approvedByTraining = false;
 
     if (acceptTrainings.length > 0) {
-      // Verificar condiciones EXACTAS según los entrenamientos:
-      // Los entrenamientos dicen: "valor, comprobante, producto destino y fecha sean legibles"
-      // - Valor legible (amount > 0)
-      // - Comprobante legible (comprobante no vacío) - IMPORTANTE: según entrenamiento
-      // - Producto destino legible (accountOrConvenio no vacío) - IMPORTANTE: según entrenamiento
-      // - Fecha legible (date no vacío)
-      const hasComprobante = Boolean(data.comprobante && data.comprobante.trim() !== '');
-      const hasProductoDestino = Boolean(data.accountOrConvenio && data.accountOrConvenio.trim() !== '');
+      // Verificar condiciones BÁSICAS según los entrenamientos (siempre que los datos críticos existan)
+      const hasComprobante = Boolean(data.comprobante && String(data.comprobante).trim() !== '');
+      const hasOperacion = Boolean(data.operacion && String(data.operacion).trim() !== '');
+      const hasAnyId = hasComprobante || hasOperacion || Boolean(data.rrn) || Boolean(data.uniqueTransactionId);
       const hasValor = Boolean(data.amount && data.amount > 0);
-      const hasFecha = Boolean(data.date && data.date.trim() !== '');
+      const hasFecha = Boolean(data.date && String(data.date).trim() !== '');
 
-      // Condiciones según entrenamiento: valor, comprobante, producto destino y fecha
-      const hasRequiredData = hasValor && hasComprobante && hasProductoDestino && hasFecha;
-
-      console.log(`✅ Verificando condiciones EXACTAS del entrenamiento:`, {
-        hasValor,
-        hasComprobante,
-        hasProductoDestino,
-        hasFecha,
-        comprobante: data.comprobante,
-        accountOrConvenio: data.accountOrConvenio,
-        amount: data.amount,
-        date: data.date,
-        hasRequiredData
-      });
+      const hasRequiredData = hasValor && hasFecha && (hasAnyId || data.accountOrConvenio);
 
       if (hasRequiredData) {
-        console.log(`✅ Recibo cumple TODAS las condiciones del entrenamiento para ${receiptType}. Aprobado por entrenamiento.`);
+        console.log(`✅ Recibo cumple condiciones básicas del entrenamiento para ${receiptType}. Aprobado por entrenamiento.`);
         approvedByTraining = true;
-        // Marcar que este recibo fue aprobado por entrenamiento - esto permitirá saltar validaciones estrictas
       } else {
-        console.log(`⚠️ Recibo NO cumple todas las condiciones del entrenamiento. Faltan:`, {
-          valor: !hasValor,
-          comprobante: !hasComprobante,
-          productoDestino: !hasProductoDestino,
-          fecha: !hasFecha
-        });
-        // Si es captura sin recibo físico y no cumple condiciones, pedir autorización
-        if (data.isScreenshot && !hasPhysicalReceiptNumber) {
-          if (!hasAnyTransactionId) {
-            return {
-              status: ValidationStatus.MISSING_RECEIPT_NUMBER,
-              message: '📱 REQUIERE AUTORIZACIÓN: Captura sin número de recibo. Suba el certificado de autorización.'
-            };
-          }
-          return {
-            status: ValidationStatus.REQUIRES_AUTHORIZATION,
-            message: '📱 REQUIERE AUTORIZACIÓN: Captura sin recibo físico. Suba documento de autorización para validar.'
-          };
-        }
-      }
-    } else {
-      // Si NO hay entrenamientos ACCEPT para este tipo, aplicar reglas por defecto
-      // Para capturas de pantalla sin recibo físico, pedir autorización
-      if (data.isScreenshot && !hasPhysicalReceiptNumber) {
-        console.log(`⚠️ No hay entrenamientos ACCEPT para ${receiptType}. Aplicando reglas por defecto.`);
-        if (!hasAnyTransactionId) {
-          return {
-            status: ValidationStatus.MISSING_RECEIPT_NUMBER,
-            message: '📱 REQUIERE AUTORIZACIÓN: Captura de pantalla sin número de recibo. Suba el certificado de autorización.'
-          };
-        }
-        return {
-          status: ValidationStatus.REQUIRES_AUTHORIZATION,
-          message: '📱 REQUIERE AUTORIZACIÓN: Captura de app sin recibo físico. Suba documento de autorización para validar.'
-        };
+        console.log(`⚠️ Recibo NO cumple condiciones mínimas del entrenamiento.`, { valor: hasValor, fecha: hasFecha, id: hasAnyId });
       }
     }
 
@@ -808,7 +759,7 @@ const App: React.FC = () => {
       if (exactTimeDuplicate) {
         return {
           status: ValidationStatus.DUPLICATE,
-          message: `Duplicado: Monto ($${data.amount}), fecha (${data.date}) y hora (${data.time})`
+          message: `Duplicado: Monto($${data.amount}), fecha(${data.date}) y hora(${data.time})`
         };
       }
 
@@ -827,7 +778,7 @@ const App: React.FC = () => {
       if (exactRefDuplicate) {
         return {
           status: ValidationStatus.DUPLICATE,
-          message: `Duplicado: Monto ($${data.amount}), fecha, banco y referencia de cliente`
+          message: `Duplicado: Monto($${data.amount}), fecha, banco y referencia de cliente`
         };
       }
     }
@@ -856,7 +807,7 @@ const App: React.FC = () => {
     // Método 2: Buscar en rawText los últimos 4 dígitos
     if (!detectedCardLast4) {
       for (const card of ALLOWED_CREDIT_CARDS) {
-        if (rawText.includes(card) || rawText.includes(`****${card}`) || rawText.includes(`*${card}`)) {
+        if (rawText.includes(card) || rawText.includes(`**** ${card}`) || rawText.includes(` * ${card}`)) {
           detectedCardLast4 = card;
           break;
         }
@@ -868,7 +819,7 @@ const App: React.FC = () => {
 
     // Si es pago con tarjeta, usar los últimos 4 dígitos como referencia
     if (isCreditCardPayment && detectedCardLast4) {
-      console.log(`💳 Pago con tarjeta detectado: ****${detectedCardLast4}`);
+      console.log(`💳 Pago con tarjeta detectado: **** ${detectedCardLast4}`);
       data.paymentReference = detectedCardLast4;
       data.creditCardLast4 = detectedCardLast4;
       data.isCreditCardPayment = true;
@@ -936,14 +887,14 @@ const App: React.FC = () => {
       if (!relaxedMatch) {
         return {
           status: ValidationStatus.INVALID_ACCOUNT,
-          message: `Cuenta/Convenio '${data.accountOrConvenio || 'No detectado'}' no autorizado.`
+          message: `Cuenta / Convenio '${data.accountOrConvenio || 'No detectado'}' no autorizado.`
         };
       }
     }
 
     // Si fue aprobado por entrenamiento, log para debug
     if (approvedByTraining) {
-      console.log(`✅ Recibo aprobado por entrenamiento - saltando validación estricta de cuenta/convenio`);
+      console.log(`✅ Recibo aprobado por entrenamiento - saltando validación estricta de cuenta / convenio`);
     }
 
     // =====================================================
@@ -969,12 +920,12 @@ const App: React.FC = () => {
         reasons.push(`campos dudosos: ${data.ambiguousFields!.join(', ')}`);
       }
       if (hasVeryLowConfidence) {
-        reasons.push(`confianza muy baja: ${confidenceScore}%`);
+        reasons.push(`confianza muy baja: ${confidenceScore} % `);
       }
 
       return {
         status: ValidationStatus.PENDING_VERIFICATION,
-        message: `🔍 VERIFICAR: ${reasons.join(', ')}. Compare los números con la imagen.`
+        message: `🔍 VERIFICAR: ${reasons.join(', ')}.Compare los números con la imagen.`
       };
     }
 
@@ -1028,14 +979,14 @@ const App: React.FC = () => {
           }
 
           const base64Data = compressionResult.data!;
-          const base64String = `data:${compressionResult.mimeType};base64,${base64Data}`;
+          const base64String = `data: ${compressionResult.mimeType}; base64, ${base64Data} `;
 
           // 2. Generar hash de la imagen para detectar duplicados exactos
           const imageHash = await generateImageHash(base64Data);
 
           // 3. Analizar con sistema multi-modelo (Gemini/GPT-4/Consenso)
           try {
-            console.log(`🤖 Analizando con modelo: ${aiConfig.preferredModel}`);
+            console.log(`🤖 Analizando con modelo: ${aiConfig.preferredModel} `);
 
             const analysisResult = await analyzeReceipt(
               base64Data,
@@ -1047,9 +998,9 @@ const App: React.FC = () => {
               aiConfig.maxTrainingExamples
             );
 
-            console.log(`✅ Análisis completado en ${analysisResult.analysisTime}ms`);
-            console.log(`📦 Desde caché: ${analysisResult.fromCache ? 'Sí' : 'No'}`);
-            console.log(`🔷 Modelo usado: ${analysisResult.model}`);
+            console.log(`✅ Análisis completado en ${analysisResult.analysisTime} ms`);
+            console.log(`📦 Desde caché: ${analysisResult.fromCache ? 'Sí' : 'No'} `);
+            console.log(`🔷 Modelo usado: ${analysisResult.model} `);
 
             return {
               ...analysisResult.data,
@@ -1223,7 +1174,7 @@ const App: React.FC = () => {
         return {
           ...record,
           status: ValidationStatus.VALID,
-          statusMessage: `✓ Autorizado manualmente por ${authData.authorizedBy}`,
+          statusMessage: `✓ Autorizado manualmente por ${authData.authorizedBy} `,
           authorizationUrl: authData.imageUrl,
           authorizedBy: authData.authorizedBy,
           authorizedAt: Date.now()
@@ -1357,7 +1308,7 @@ const App: React.FC = () => {
           apro: verifiedData.apro || record.apro,
           comprobante: verifiedData.comprobante || record.comprobante,
           status: ValidationStatus.VALID,
-          statusMessage: `✓ Números verificados por ${verifiedData.verifiedBy}`,
+          statusMessage: `✓ Números verificados por ${verifiedData.verifiedBy} `,
           verifiedNumbers: true,
           verifiedBy: verifiedData.verifiedBy,
           verifiedAt: Date.now(),
@@ -1393,28 +1344,28 @@ const App: React.FC = () => {
         <div className="flex border-b border-gray-200 mb-6">
           <button
             onClick={() => setActiveTab('UPLOAD')}
-            className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'UPLOAD'
-              ? 'border-brand-600 text-brand-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
+            className={`px - 6 py - 3 font - medium text - sm transition - colors border - b - 2 ${activeTab === 'UPLOAD'
+                ? 'border-brand-600 text-brand-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+              } `}
           >
             Validación en Curso (Nuevos)
           </button>
           <button
             onClick={() => setActiveTab('HISTORY')}
-            className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'HISTORY'
-              ? 'border-brand-600 text-brand-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
+            className={`px - 6 py - 3 font - medium text - sm transition - colors border - b - 2 ${activeTab === 'HISTORY'
+                ? 'border-brand-600 text-brand-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+              } `}
           >
             Historial Base de Datos {isLoadingHistory && '(Cargando...)'}
           </button>
           <button
             onClick={() => setActiveTab('TRAINING')}
-            className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'TRAINING'
-              ? 'border-brand-600 text-brand-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
+            className={`px - 6 py - 3 font - medium text - sm transition - colors border - b - 2 ${activeTab === 'TRAINING'
+                ? 'border-brand-600 text-brand-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+              } `}
           >
             🎓 Entrenamiento IA ({trainingRecords.length})
           </button>
