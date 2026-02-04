@@ -15,6 +15,7 @@ export enum ValidationStatus {
   LOW_CONFIDENCE = 'LOW_CONFIDENCE',       // IA no está segura de los números
   REQUIRES_AUTHORIZATION = 'REQUIRES_AUTHORIZATION', // Captura que necesita autorización humana
   PENDING_VERIFICATION = 'PENDING_VERIFICATION',     // Requiere verificación humana de los números
+  DATE_OUT_OF_RANGE = 'DATE_OUT_OF_RANGE',           // Fecha fuera del rango permitido
   UNKNOWN_ERROR = 'UNKNOWN_ERROR'
 }
 
@@ -191,4 +192,10 @@ export interface CachedAnalysis {
   model: AIModel;
   timestamp: number;
   trainingVersion: number; // Invalidar si hay nuevos entrenamientos
+}
+
+// Configuración Global del Sistema
+export interface GlobalConfig {
+  startDate: string; // YYYY-MM-DD
+  endDate: string;   // YYYY-MM-DD
 }

@@ -13,8 +13,8 @@ import { ReceiptTypeConfigModal } from './components/ReceiptTypeConfig';
 import { analyzeReceipt, getAIConfig, saveAIConfig } from './services/aiService';
 import { incrementTrainingVersion, cleanExpiredCache, getCacheStats } from './services/cacheService';
 import { sendToGoogleSheets, fetchHistoryFromSheets, fetchAccountsFromSheets, saveAccountsToSheets, saveTrainingToSheets, fetchTrainingFromSheets } from './services/sheetsService';
-import { ConsignmentRecord, ProcessingStatus, ValidationStatus, ExtractedData, ConfigItem, TrainingRecord, TrainingDecision, ReceiptType, ReceiptTypeConfig, AIModel, AIConfig } from './types';
-import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL, CERVECERIA_UNION_CLIENT_CODE, CERVECERIA_UNION_KEYWORDS, CERVECERIA_UNION_CONVENIOS, MIN_CONFIDENCE_SCORE, MIN_THERMAL_QUALITY_SCORE, ALLOWED_CREDIT_CARDS, CERVECERIA_UNION_INTERNAL_REFS, DEFAULT_AI_CONFIG } from './constants';
+import { ConsignmentRecord, ProcessingStatus, ValidationStatus, ExtractedData, ConfigItem, TrainingRecord, TrainingDecision, ReceiptType, ReceiptTypeConfig, AIModel, AIConfig, GlobalConfig } from './types';
+import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL, CERVECERIA_UNION_CLIENT_CODE, CERVECERIA_UNION_KEYWORDS, CERVECERIA_UNION_CONVENIOS, MIN_CONFIDENCE_SCORE, MIN_THERMAL_QUALITY_SCORE, ALLOWED_CREDIT_CARDS, CERVECERIA_UNION_INTERNAL_REFS, DEFAULT_AI_CONFIG, DEFAULT_GLOBAL_CONFIG } from './constants';
 import { processImageFile } from './utils/imageCompression';
 
 const App: React.FC = () => {
@@ -64,6 +64,7 @@ const App: React.FC = () => {
 
   // AI Model Configuration
   const [aiConfig, setAiConfig] = useState<AIConfig>(DEFAULT_AI_CONFIG);
+  const [globalConfig, setGlobalConfig] = useState<GlobalConfig>(DEFAULT_GLOBAL_CONFIG);
   const [cacheStats, setCacheStats] = useState({ size: 0, oldestTimestamp: null as number | null });
 
   // 1. Load Config on Mount
@@ -102,6 +103,10 @@ const App: React.FC = () => {
           type: 'CONVENIO' as const
         }));
         setAllowedConvenios(defaults);
+      }
+      const savedGlobal = localStorage.getItem('global_config');
+      if (savedGlobal) {
+        setGlobalConfig(JSON.parse(savedGlobal));
       }
     };
     loadConfig();
@@ -471,6 +476,12 @@ const App: React.FC = () => {
     setCacheStats(stats);
   };
 
+  // 14-B. Guardar configuración global
+  const handleSaveGlobalConfig = (config: GlobalConfig) => {
+    setGlobalConfig(config);
+    localStorage.setItem('global_config', JSON.stringify(config));
+  };
+
   // 15. Limpiar caché manualmente
   const handleClearCache = () => {
     if (confirm('¿Estás seguro de que quieres limpiar todo el caché de análisis?')) {
@@ -599,6 +610,17 @@ const App: React.FC = () => {
         status: ValidationStatus.MISSING_DATE,
         message: '⛔ RECHAZADO: Sin fecha visible. La fecha es obligatoria para validar el pago.'
       };
+    }
+
+    // 1-Abis. VERIFICAR RANGO DE FECHA PERMITIDO
+    if (globalConfig.startDate && globalConfig.endDate) {
+      const receiptDate = data.date; // YYYY-MM-DD
+      if (receiptDate < globalConfig.startDate || receiptDate > globalConfig.endDate) {
+        return {
+          status: ValidationStatus.DATE_OUT_OF_RANGE,
+          message: `⛔ RECHAZADO: Fecha ${receiptDate} fuera del rango permitido (${globalConfig.startDate} a ${globalConfig.endDate}).`
+        };
+      }
     }
 
     // 0-B. VERIFICAR CALIDAD DE IMAGEN ESPECIAL PARA RECIBOS TÉRMICOS
@@ -1345,8 +1367,8 @@ const App: React.FC = () => {
           <button
             onClick={() => setActiveTab('UPLOAD')}
             className={`px - 6 py - 3 font - medium text - sm transition - colors border - b - 2 ${activeTab === 'UPLOAD'
-                ? 'border-brand-600 text-brand-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+              ? 'border-brand-600 text-brand-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
               } `}
           >
             Validación en Curso (Nuevos)
@@ -1354,8 +1376,8 @@ const App: React.FC = () => {
           <button
             onClick={() => setActiveTab('HISTORY')}
             className={`px - 6 py - 3 font - medium text - sm transition - colors border - b - 2 ${activeTab === 'HISTORY'
-                ? 'border-brand-600 text-brand-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+              ? 'border-brand-600 text-brand-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
               } `}
           >
             Historial Base de Datos {isLoadingHistory && '(Cargando...)'}
@@ -1363,8 +1385,8 @@ const App: React.FC = () => {
           <button
             onClick={() => setActiveTab('TRAINING')}
             className={`px - 6 py - 3 font - medium text - sm transition - colors border - b - 2 ${activeTab === 'TRAINING'
-                ? 'border-brand-600 text-brand-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+              ? 'border-brand-600 text-brand-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
               } `}
           >
             🎓 Entrenamiento IA ({trainingRecords.length})
@@ -1523,6 +1545,8 @@ const App: React.FC = () => {
         }}
         aiConfig={aiConfig}
         onSaveAIConfig={handleSaveAIConfig}
+        globalConfig={globalConfig}
+        onSaveGlobalConfig={handleSaveGlobalConfig}
         cacheStats={cacheStats}
         onClearCache={handleClearCache}
       />
@@ -1531,7 +1555,6 @@ const App: React.FC = () => {
         isOpen={receiptTypeConfigOpen}
         onClose={() => setReceiptTypeConfigOpen(false)}
         onSave={handleSaveReceiptTypeConfig}
-        initialConfigs={receiptTypeConfigs}
       />
 
       <AuthorizationModal

@@ -14,51 +14,51 @@ interface ConsignmentTableProps {
 }
 
 export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onDelete, onViewImage, onAuthorize, onVerifyNumbers, onTrain, accounts = [], convenios = [] }) => {
-  
+
   // Helper: Buscar etiqueta de cuenta/convenio
   const getAccountLabel = (accountNumber: string | null | undefined): { number: string; label: string } | null => {
     if (!accountNumber) return null;
-    
+
     const normalized = normalizeAccount(accountNumber);
-    
+
     // Buscar en cuentas
     const foundAccount = accounts.find(acc => normalizeAccount(acc.value) === normalized);
     if (foundAccount) {
       return { number: accountNumber, label: foundAccount.label || 'Cuenta Autorizada' };
     }
-    
+
     // Buscar en convenios
     const foundConvenio = convenios.find(conv => normalizeAccount(conv.value) === normalized);
     if (foundConvenio) {
       return { number: accountNumber, label: foundConvenio.label || 'Convenio Autorizado' };
     }
-    
+
     return { number: accountNumber, label: '' };
   };
-  
+
   // Helper: Convert Google Drive URL to viewable format
   const getViewableImageUrl = (url: string): string => {
     if (!url) return '';
-    
+
     // If it's already base64, return as is
     if (url.startsWith('data:image')) {
       return url;
     }
-    
+
     // If it's a Google Drive URL, convert to direct view format
     if (url.includes('drive.google.com')) {
       const fileIdMatch = url.match(/\/file\/d\/([^\/]+)/);
       const idMatch = url.match(/id=([^&]+)/);
       const fileId = fileIdMatch ? fileIdMatch[1] : (idMatch ? idMatch[1] : null);
-      
+
       if (fileId) {
         return `https://drive.google.com/thumbnail?id=${fileId}&sz=w400`;
       }
     }
-    
+
     return url;
   };
-  
+
   const getStatusBadge = (status: ValidationStatus, message: string) => {
     switch (status) {
       case ValidationStatus.VALID:
@@ -79,6 +79,8 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
         return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-800" title={message}>📝 Req. Autorización</span>;
       case ValidationStatus.PENDING_VERIFICATION:
         return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-800" title={message}>🔍 Verificar Números</span>;
+      case ValidationStatus.DATE_OUT_OF_RANGE:
+        return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-purple-100 text-purple-800" title={message}>📅 Fuera de Rango</span>;
       default:
         return <span className="inline-flex px-2 py-1 rounded text-xs font-bold bg-red-100 text-red-800">❌ Error</span>;
     }
@@ -86,8 +88,8 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
 
   // Helper: Check if record needs authorization button
   const needsAuthorization = (status: ValidationStatus) => {
-    return status === ValidationStatus.REQUIRES_AUTHORIZATION || 
-           status === ValidationStatus.MISSING_RECEIPT_NUMBER;
+    return status === ValidationStatus.REQUIRES_AUTHORIZATION ||
+      status === ValidationStatus.MISSING_RECEIPT_NUMBER;
   };
 
   if (records.length === 0) {
@@ -119,14 +121,14 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
               <tr key={record.id} className={`hover:bg-gray-50 ${record.status !== ValidationStatus.VALID ? 'bg-red-50/40' : ''}`}>
                 <td className="px-4 py-3">
                   {record.imageUrl ? (
-                    <div 
+                    <div
                       className="h-12 w-12 rounded overflow-hidden border border-gray-200 bg-gray-100 cursor-zoom-in relative group"
                       onClick={() => onViewImage(record.imageUrl)}
                       title="Click para ver imagen completa"
                     >
-                      <img 
-                        className="h-full w-full object-cover" 
-                        src={getViewableImageUrl(record.imageUrl)} 
+                      <img
+                        className="h-full w-full object-cover"
+                        src={getViewableImageUrl(record.imageUrl)}
                         alt="Recibo"
                         onError={(e) => {
                           (e.target as HTMLImageElement).src = record.imageUrl;
@@ -161,7 +163,7 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                     if (record.uniqueTransactionId && !ids.some(id => id.value === record.uniqueTransactionId)) {
                       ids.push({ label: 'ID', value: record.uniqueTransactionId });
                     }
-                    
+
                     if (ids.length === 0) {
                       return (
                         <div>
@@ -172,7 +174,7 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                         </div>
                       );
                     }
-                    
+
                     return (
                       <div className="space-y-1">
                         {ids.map((id, idx) => (
@@ -197,16 +199,16 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                   {(() => {
                     const ref = record.paymentReference;
                     if (!ref) return <span className="text-gray-400">-</span>;
-                    
+
                     // Buscar si es un cliente conocido
                     const normalizedRef = normalizeAccount(ref);
                     const knownClientName = Object.entries(KNOWN_CLIENTS).find(
                       ([code]) => normalizeAccount(code) === normalizedRef
                     )?.[1];
-                    
+
                     // Buscar etiqueta de cuenta si no es cliente conocido
                     const refInfo = getAccountLabel(ref);
-                    
+
                     return (
                       <div>
                         <div className="font-mono text-gray-900 font-medium">{ref}</div>
@@ -230,7 +232,7 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                   {(() => {
                     const accInfo = getAccountLabel(record.accountOrConvenio);
                     if (!accInfo) return <div className="text-gray-400">-</div>;
-                    
+
                     return (
                       <div className="mt-1">
                         <div className="font-mono text-gray-700">{accInfo.number}</div>
@@ -242,7 +244,7 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                   })()}
                 </td>
                 <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">
-                  {record.amount 
+                  {record.amount
                     ? new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(record.amount)
                     : '$0'}
                 </td>

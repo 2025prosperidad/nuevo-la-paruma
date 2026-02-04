@@ -174,3 +174,9 @@ export const DEFAULT_AI_CONFIG = {
   useTrainingExamples: true,
   maxTrainingExamples: 10
 };
+
+// Configuración global por defecto
+export const DEFAULT_GLOBAL_CONFIG = {
+  startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], // Primer día del mes
+  endDate: new Date().toISOString().split('T')[0] // Día actual
+};
