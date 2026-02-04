@@ -3,7 +3,7 @@ export const COMPANY_NAME = "Distribuidora La Paruma SAS";
 
 // URL del Web App de Google Apps Script (actualizada 11/12/2025)
 // Esta URL conecta con la base de datos para leer/guardar consignaciones y configuración
-export const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbztmBbxC5Ljnh3eF1GjM0pcFVAE0ft7gBGDCwyEKarzuj-dAA9v1H0Y75myXk-hKWfU/exec"; 
+export const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbztmBbxC5Ljnh3eF1GjM0pcFVAE0ft7gBGDCwyEKarzuj-dAA9v1H0Y75myXk-hKWfU/exec";
 
 // Normalize strings: remove spaces, dashes, and leading zeros for accurate comparison
 export const normalizeAccount = (acc: string | number | null | undefined) => {
@@ -129,14 +129,14 @@ export const BUILD_INFO = (() => {
     // Intenta leer variables de entorno estándar de Vite
     // @ts-ignore
     if (typeof import.meta !== 'undefined' && import.meta.env) {
-        // @ts-ignore
-        if (import.meta.env.VITE_GIT_COMMIT_HASH) hash = import.meta.env.VITE_GIT_COMMIT_HASH;
-        // @ts-ignore
-        if (import.meta.env.VITE_GIT_COMMIT_DATE) date = import.meta.env.VITE_GIT_COMMIT_DATE;
-        // @ts-ignore
-        if (import.meta.env.VITE_GIT_COMMIT_MESSAGE) message = import.meta.env.VITE_GIT_COMMIT_MESSAGE;
-        // @ts-ignore
-        if (import.meta.env.VITE_GIT_COMMIT_AUTHOR) author = import.meta.env.VITE_GIT_COMMIT_AUTHOR;
+      // @ts-ignore
+      if (import.meta.env.VITE_GIT_COMMIT_HASH) hash = import.meta.env.VITE_GIT_COMMIT_HASH;
+      // @ts-ignore
+      if (import.meta.env.VITE_GIT_COMMIT_DATE) date = import.meta.env.VITE_GIT_COMMIT_DATE;
+      // @ts-ignore
+      if (import.meta.env.VITE_GIT_COMMIT_MESSAGE) message = import.meta.env.VITE_GIT_COMMIT_MESSAGE;
+      // @ts-ignore
+      if (import.meta.env.VITE_GIT_COMMIT_AUTHOR) author = import.meta.env.VITE_GIT_COMMIT_AUTHOR;
     }
   } catch (e) {
     // Fallback silencioso
@@ -144,3 +144,31 @@ export const BUILD_INFO = (() => {
 
   return { hash, date, message, author };
 })();
+
+// ==========================================
+// AI MODEL CONFIGURATION
+// ==========================================
+
+// OpenAI API Key - se cargará desde .env.local
+// IMPORTANTE: Agregar OPENAI_API_KEY=tu_key_aqui en .env.local
+const getOpenAIKey = (): string => {
+  try {
+    // @ts-ignore
+    const key = (typeof process !== 'undefined' && process.env?.OPENAI_API_KEY)
+      || (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPENAI_API_KEY);
+    return key || '';
+  } catch (e) {
+    return '';
+  }
+};
+
+export const OPENAI_API_KEY = getOpenAIKey();
+
+// Configuración por defecto de IA
+export const DEFAULT_AI_CONFIG = {
+  preferredModel: 'GEMINI' as const,
+  enableCache: true,
+  cacheExpiration: 720, // 30 días en horas
+  useTrainingExamples: true,
+  maxTrainingExamples: 10
+};

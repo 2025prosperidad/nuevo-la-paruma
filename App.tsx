@@ -10,10 +10,11 @@ import { VerifyNumbersModal } from './components/VerifyNumbersModal';
 import { TrainingModal } from './components/TrainingModal';
 import { TrainingSection } from './components/TrainingSection';
 import { ReceiptTypeConfigModal } from './components/ReceiptTypeConfig';
-import { analyzeConsignmentImage } from './services/geminiService';
+import { analyzeReceipt, getAIConfig, saveAIConfig } from './services/aiService';
+import { incrementTrainingVersion, cleanExpiredCache, getCacheStats } from './services/cacheService';
 import { sendToGoogleSheets, fetchHistoryFromSheets, fetchAccountsFromSheets, saveAccountsToSheets, saveTrainingToSheets, fetchTrainingFromSheets } from './services/sheetsService';
-import { ConsignmentRecord, ProcessingStatus, ValidationStatus, ExtractedData, ConfigItem, TrainingRecord, TrainingDecision, ReceiptType, ReceiptTypeConfig } from './types';
-import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL, CERVECERIA_UNION_CLIENT_CODE, CERVECERIA_UNION_KEYWORDS, CERVECERIA_UNION_CONVENIOS, MIN_CONFIDENCE_SCORE, MIN_THERMAL_QUALITY_SCORE, ALLOWED_CREDIT_CARDS, CERVECERIA_UNION_INTERNAL_REFS } from './constants';
+import { ConsignmentRecord, ProcessingStatus, ValidationStatus, ExtractedData, ConfigItem, TrainingRecord, TrainingDecision, ReceiptType, ReceiptTypeConfig, AIModel, AIConfig } from './types';
+import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL, CERVECERIA_UNION_CLIENT_CODE, CERVECERIA_UNION_KEYWORDS, CERVECERIA_UNION_CONVENIOS, MIN_CONFIDENCE_SCORE, MIN_THERMAL_QUALITY_SCORE, ALLOWED_CREDIT_CARDS, CERVECERIA_UNION_INTERNAL_REFS, DEFAULT_AI_CONFIG } from './constants';
 import { processImageFile } from './utils/imageCompression';
 
 const App: React.FC = () => {
@@ -61,6 +62,10 @@ const App: React.FC = () => {
   const [receiptTypeConfigs, setReceiptTypeConfigs] = useState<ReceiptTypeConfig[]>([]);
   const [receiptTypeConfigOpen, setReceiptTypeConfigOpen] = useState(false);
 
+  // AI Model Configuration
+  const [aiConfig, setAiConfig] = useState<AIConfig>(DEFAULT_AI_CONFIG);
+  const [cacheStats, setCacheStats] = useState({ size: 0, oldestTimestamp: null as number | null });
+
   // 1. Load Config on Mount
   useEffect(() => {
     const loadConfig = () => {
@@ -100,6 +105,19 @@ const App: React.FC = () => {
       }
     };
     loadConfig();
+
+    // Cargar configuración de IA
+    const savedAIConfig = getAIConfig();
+    if (savedAIConfig) {
+      setAiConfig(savedAIConfig);
+    }
+
+    // Actualizar estadísticas de caché
+    const stats = getCacheStats();
+    setCacheStats(stats);
+
+    // Limpiar caché expirado
+    cleanExpiredCache(aiConfig.cacheExpiration);
   }, []);
 
   // Force update URL if the constant changes (Auto-fix for user)
@@ -193,23 +211,23 @@ const App: React.FC = () => {
       const uniqueData: TrainingRecord[] = [];
       const seenHashes = new Set<string>();
       const seenIds = new Set<string>();
-      
+
       for (const record of data) {
         // Verificar por ID primero
         if (record.id && seenIds.has(record.id)) {
           continue;
         }
         if (record.id) seenIds.add(record.id);
-        
+
         // Verificar por imageHash
         if (record.imageHash && seenHashes.has(record.imageHash)) {
           continue;
         }
         if (record.imageHash) seenHashes.add(record.imageHash);
-        
+
         uniqueData.push(record);
       }
-      
+
       setTrainingRecords(uniqueData);
       // Guardar también en localStorage para uso offline
       localStorage.setItem('training_records', JSON.stringify(uniqueData));
@@ -331,6 +349,10 @@ const App: React.FC = () => {
     setTrainingModalOpen(false);
     setRecordToTrain(null);
 
+    // Incrementar versión de entrenamiento (invalida cachés)
+    incrementTrainingVersion();
+    console.log('📚 Versión de entrenamiento incrementada - cachés invalidados');
+
     // Guardar automáticamente en localStorage
     const updatedRecords = [newTrainingRecord, ...trainingRecords.filter(r => !r.imageHash || r.imageHash !== recordToTrain.imageHash)];
     localStorage.setItem('training_records', JSON.stringify(updatedRecords));
@@ -436,6 +458,27 @@ const App: React.FC = () => {
     setReceiptTypeConfigs(configs);
     localStorage.setItem('receipt_type_configs', JSON.stringify(configs));
     console.log('Configuración de tipos de recibo guardada:', configs.length);
+  };
+
+  // 14. Guardar configuración de IA
+  const handleSaveAIConfig = (config: AIConfig) => {
+    setAiConfig(config);
+    saveAIConfig(config);
+    console.log('Configuración de IA guardada:', config);
+
+    // Actualizar estadísticas de caché
+    const stats = getCacheStats();
+    setCacheStats(stats);
+  };
+
+  // 15. Limpiar caché manualmente
+  const handleClearCache = () => {
+    if (confirm('¿Estás seguro de que quieres limpiar todo el caché de análisis?')) {
+      cleanExpiredCache(0); // Limpiar todo
+      const stats = getCacheStats();
+      setCacheStats(stats);
+      alert('✅ Caché limpiado exitosamente');
+    }
   };
 
   // Helper: Generate simple hash from image data (to detect exact duplicate images)
@@ -575,18 +618,18 @@ const App: React.FC = () => {
     const hasAnyTransactionId = Boolean(data.rrn || data.recibo || data.apro || data.operacion || data.comprobante || data.uniqueTransactionId);
 
     console.log(`🔍 Validando recibo. Tipo: ${receiptType}, Banco: ${data.bankName}, isScreenshot: ${data.isScreenshot}, hasPhysicalReceipt: ${hasPhysicalReceiptNumber}`);
-    
+
     // Buscar entrenamientos ACCEPT para este tipo de recibo (genérico para cualquier banco)
-    const acceptTrainings = trainingRecords.filter(tr => 
+    const acceptTrainings = trainingRecords.filter(tr =>
       tr.receiptType === receiptType && tr.decision === TrainingDecision.ACCEPT
     );
-    
+
     console.log(`📚 Encontrados ${acceptTrainings.length} entrenamientos ACCEPT para tipo ${receiptType}`);
-    
+
     // Si hay entrenamientos ACCEPT, verificar si el recibo cumple las condiciones
     // Si cumple, marcar como "aprobado por entrenamiento" para saltar validaciones estrictas
     let approvedByTraining = false;
-    
+
     if (acceptTrainings.length > 0) {
       // Verificar condiciones EXACTAS según los entrenamientos:
       // Los entrenamientos dicen: "valor, comprobante, producto destino y fecha sean legibles"
@@ -598,10 +641,10 @@ const App: React.FC = () => {
       const hasProductoDestino = Boolean(data.accountOrConvenio && data.accountOrConvenio.trim() !== '');
       const hasValor = Boolean(data.amount && data.amount > 0);
       const hasFecha = Boolean(data.date && data.date.trim() !== '');
-      
+
       // Condiciones según entrenamiento: valor, comprobante, producto destino y fecha
       const hasRequiredData = hasValor && hasComprobante && hasProductoDestino && hasFecha;
-      
+
       console.log(`✅ Verificando condiciones EXACTAS del entrenamiento:`, {
         hasValor,
         hasComprobante,
@@ -613,7 +656,7 @@ const App: React.FC = () => {
         date: data.date,
         hasRequiredData
       });
-      
+
       if (hasRequiredData) {
         console.log(`✅ Recibo cumple TODAS las condiciones del entrenamiento para ${receiptType}. Aprobado por entrenamiento.`);
         approvedByTraining = true;
@@ -662,7 +705,7 @@ const App: React.FC = () => {
     // =====================================================
     // Si fue aprobado por entrenamiento, ser más flexible con la calidad
     const minQualityForThisRecord = approvedByTraining ? Math.max(MIN_QUALITY_SCORE - 10, 50) : MIN_QUALITY_SCORE;
-    
+
     if (!data.isReadable || data.imageQualityScore < minQualityForThisRecord) {
       if (approvedByTraining) {
         console.log(`⚠️ Calidad baja pero aprobado por entrenamiento: ${data.imageQualityScore}/100 (mínimo: ${minQualityForThisRecord})`);
@@ -897,7 +940,7 @@ const App: React.FC = () => {
         };
       }
     }
-    
+
     // Si fue aprobado por entrenamiento, log para debug
     if (approvedByTraining) {
       console.log(`✅ Recibo aprobado por entrenamiento - saltando validación estricta de cuenta/convenio`);
@@ -990,15 +1033,33 @@ const App: React.FC = () => {
           // 2. Generar hash de la imagen para detectar duplicados exactos
           const imageHash = await generateImageHash(base64Data);
 
-          // 3. Analizar con Gemini
+          // 3. Analizar con sistema multi-modelo (Gemini/GPT-4/Consenso)
           try {
-            const extractedData = await analyzeConsignmentImage(base64Data, compressionResult.mimeType);
+            console.log(`🤖 Analizando con modelo: ${aiConfig.preferredModel}`);
+
+            const analysisResult = await analyzeReceipt(
+              base64Data,
+              imageHash,
+              aiConfig.preferredModel as AIModel,
+              compressionResult.mimeType,
+              aiConfig.enableCache,
+              aiConfig.useTrainingExamples,
+              aiConfig.maxTrainingExamples
+            );
+
+            console.log(`✅ Análisis completado en ${analysisResult.analysisTime}ms`);
+            console.log(`📦 Desde caché: ${analysisResult.fromCache ? 'Sí' : 'No'}`);
+            console.log(`🔷 Modelo usado: ${analysisResult.model}`);
+
             return {
-              ...extractedData,
+              ...analysisResult.data,
               id: crypto.randomUUID(),
               imageUrl: base64String,
               imageHash: imageHash,
-              createdAt: Date.now()
+              createdAt: Date.now(),
+              analyzedWith: analysisResult.model,
+              fromCache: analysisResult.fromCache,
+              analysisTime: analysisResult.analysisTime
             };
           } catch (err: any) {
             console.error('Error en análisis IA:', err);
@@ -1509,6 +1570,10 @@ const App: React.FC = () => {
           setConfigOpen(false);
           setReceiptTypeConfigOpen(true);
         }}
+        aiConfig={aiConfig}
+        onSaveAIConfig={handleSaveAIConfig}
+        cacheStats={cacheStats}
+        onClearCache={handleClearCache}
       />
 
       <ReceiptTypeConfigModal

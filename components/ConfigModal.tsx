@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ConfigItem } from '../types';
+import { ConfigItem, AIConfig, AIModel } from '../types';
 
 interface ConfigModalProps {
   isOpen: boolean;
@@ -12,6 +12,11 @@ interface ConfigModalProps {
   onSyncToSheets: () => void;
   onLoadFromSheets: () => void;
   onOpenReceiptTypeConfig?: () => void;
+  // AI Configuration
+  aiConfig?: AIConfig;
+  onSaveAIConfig?: (config: AIConfig) => void;
+  cacheStats?: { size: number; oldestTimestamp: number | null };
+  onClearCache?: () => void;
 }
 
 export const ConfigModal: React.FC<ConfigModalProps> = ({
@@ -24,11 +29,31 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   onResetDefaults,
   onSyncToSheets,
   onLoadFromSheets,
-  onOpenReceiptTypeConfig
+  onOpenReceiptTypeConfig,
+  aiConfig,
+  onSaveAIConfig,
+  cacheStats,
+  onClearCache
 }) => {
-  const [activeTab, setActiveTab] = useState<'ACCOUNTS' | 'CONVENIOS'>('ACCOUNTS');
+  const [activeTab, setActiveTab] = useState<'ACCOUNTS' | 'CONVENIOS' | 'AI'>('ACCOUNTS');
   const [newValue, setNewValue] = useState('');
   const [newLabel, setNewLabel] = useState('');
+
+  // Local AI config state
+  const [localAIConfig, setLocalAIConfig] = useState<AIConfig>(aiConfig || {
+    preferredModel: AIModel.GEMINI,
+    enableCache: true,
+    cacheExpiration: 720,
+    useTrainingExamples: true,
+    maxTrainingExamples: 10
+  });
+
+  // Update local config when prop changes
+  useEffect(() => {
+    if (aiConfig) {
+      setLocalAIConfig(aiConfig);
+    }
+  }, [aiConfig]);
 
   // Reset inputs when tab changes
   useEffect(() => {
@@ -40,7 +65,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
 
   const handleAdd = () => {
     if (!newValue.trim()) return;
-    
+
     const newItem: ConfigItem = {
       id: crypto.randomUUID(),
       value: newValue.trim(),
@@ -71,7 +96,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        
+
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
           <div>
@@ -89,21 +114,19 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
         <div className="flex border-b border-gray-200">
           <button
             onClick={() => setActiveTab('ACCOUNTS')}
-            className={`flex-1 py-3 text-sm font-medium transition-colors ${
-              activeTab === 'ACCOUNTS' 
-                ? 'border-b-2 border-brand-600 text-brand-600 bg-blue-50/50' 
-                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-            }`}
+            className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'ACCOUNTS'
+              ? 'border-b-2 border-brand-600 text-brand-600 bg-blue-50/50'
+              : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}
           >
             Cuentas Bancarias ({accounts.length})
           </button>
           <button
             onClick={() => setActiveTab('CONVENIOS')}
-            className={`flex-1 py-3 text-sm font-medium transition-colors ${
-              activeTab === 'CONVENIOS' 
-                ? 'border-b-2 border-brand-600 text-brand-600 bg-blue-50/50' 
-                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-            }`}
+            className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'CONVENIOS'
+              ? 'border-b-2 border-brand-600 text-brand-600 bg-blue-50/50'
+              : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}
           >
             Convenios de Recaudo ({convenios.length})
           </button>
@@ -111,7 +134,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
-          
+
           {/* Add New Form */}
           <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6">
             <h3 className="text-sm font-semibold text-gray-700 mb-3">Agregar Nuevo</h3>
@@ -174,67 +197,67 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
 
         {/* Footer */}
         <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-between items-center">
-            <div className="flex gap-3 items-center">
-                <button 
-                    onClick={() => {
-                        if(window.confirm('¿Estás seguro de restaurar los valores predeterminados? Se borrarán tus cambios personalizados.')) {
-                            onResetDefaults();
-                        }
-                    }}
-                    className="text-xs text-gray-500 hover:text-gray-800 underline"
-                >
-                    Restaurar valores por defecto
-                </button>
-            </div>
-            
-            <div className="flex gap-3">
-                {onOpenReceiptTypeConfig && (
-                  <button
-                      onClick={onOpenReceiptTypeConfig}
-                      className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 flex items-center gap-2"
-                  >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                      </svg>
-                      ⚙️ Tipos de Recibo
-                  </button>
-                )}
+          <div className="flex gap-3 items-center">
+            <button
+              onClick={() => {
+                if (window.confirm('¿Estás seguro de restaurar los valores predeterminados? Se borrarán tus cambios personalizados.')) {
+                  onResetDefaults();
+                }
+              }}
+              className="text-xs text-gray-500 hover:text-gray-800 underline"
+            >
+              Restaurar valores por defecto
+            </button>
+          </div>
 
-                <button
-                    onClick={() => {
-                        if(window.confirm('¿Cargar configuración desde Google Sheets? Esto sobrescribirá la configuración local.')) {
-                            onLoadFromSheets();
-                        }
-                    }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 flex items-center gap-2"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    Cargar desde Sheets
-                </button>
-                
-                <button
-                    onClick={() => {
-                        if(window.confirm('¿Guardar la configuración actual en Google Sheets? Esto sobrescribirá los datos en la hoja "Cuentas".')) {
-                            onSyncToSheets();
-                        }
-                    }}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 flex items-center gap-2"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    Guardar en Sheets
-                </button>
-                
-                <button
-                    onClick={onClose}
-                    className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-                >
-                    Cerrar
-                </button>
-            </div>
+          <div className="flex gap-3">
+            {onOpenReceiptTypeConfig && (
+              <button
+                onClick={onOpenReceiptTypeConfig}
+                className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                </svg>
+                ⚙️ Tipos de Recibo
+              </button>
+            )}
+
+            <button
+              onClick={() => {
+                if (window.confirm('¿Cargar configuración desde Google Sheets? Esto sobrescribirá la configuración local.')) {
+                  onLoadFromSheets();
+                }
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 flex items-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Cargar desde Sheets
+            </button>
+
+            <button
+              onClick={() => {
+                if (window.confirm('¿Guardar la configuración actual en Google Sheets? Esto sobrescribirá los datos en la hoja "Cuentas".')) {
+                  onSyncToSheets();
+                }
+              }}
+              className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 flex items-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              Guardar en Sheets
+            </button>
+
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Cerrar
+            </button>
+          </div>
         </div>
       </div>
     </div>
