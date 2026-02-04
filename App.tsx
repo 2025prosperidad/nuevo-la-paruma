@@ -584,30 +584,47 @@ const App: React.FC = () => {
     console.log(`📚 Encontrados ${acceptTrainings.length} entrenamientos ACCEPT para tipo ${receiptType}`);
     
     // Si hay entrenamientos ACCEPT, verificar si el recibo cumple las condiciones
+    // Si cumple, marcar como "aprobado por entrenamiento" para saltar validaciones estrictas
+    let approvedByTraining = false;
+    
     if (acceptTrainings.length > 0) {
-      // Verificar condiciones básicas según los entrenamientos:
-      // - Valor legible
-      // - Fecha legible
-      // - Al menos un identificador de transacción (comprobante, operacion, rrn, etc.) o cuenta/convenio
-      const hasRequiredData = Boolean(
-        data.amount && data.amount > 0 && // Valor legible
-        data.date && data.date.trim() !== '' && // Fecha legible
-        (hasAnyTransactionId || (data.accountOrConvenio && data.accountOrConvenio.trim() !== '')) // Identificador o cuenta/convenio
-      );
+      // Verificar condiciones EXACTAS según los entrenamientos:
+      // Los entrenamientos dicen: "valor, comprobante, producto destino y fecha sean legibles"
+      // - Valor legible (amount > 0)
+      // - Comprobante legible (comprobante no vacío) - IMPORTANTE: según entrenamiento
+      // - Producto destino legible (accountOrConvenio no vacío) - IMPORTANTE: según entrenamiento
+      // - Fecha legible (date no vacío)
+      const hasComprobante = Boolean(data.comprobante && data.comprobante.trim() !== '');
+      const hasProductoDestino = Boolean(data.accountOrConvenio && data.accountOrConvenio.trim() !== '');
+      const hasValor = Boolean(data.amount && data.amount > 0);
+      const hasFecha = Boolean(data.date && data.date.trim() !== '');
       
-      console.log(`✅ Verificando condiciones del entrenamiento:`, {
-        hasAmount: Boolean(data.amount && data.amount > 0),
-        hasDate: Boolean(data.date && data.date.trim() !== ''),
-        hasTransactionId: hasAnyTransactionId,
-        hasAccountOrConvenio: Boolean(data.accountOrConvenio && data.accountOrConvenio.trim() !== ''),
+      // Condiciones según entrenamiento: valor, comprobante, producto destino y fecha
+      const hasRequiredData = hasValor && hasComprobante && hasProductoDestino && hasFecha;
+      
+      console.log(`✅ Verificando condiciones EXACTAS del entrenamiento:`, {
+        hasValor,
+        hasComprobante,
+        hasProductoDestino,
+        hasFecha,
+        comprobante: data.comprobante,
+        accountOrConvenio: data.accountOrConvenio,
+        amount: data.amount,
+        date: data.date,
         hasRequiredData
       });
       
       if (hasRequiredData) {
-        console.log(`✅ Recibo cumple condiciones del entrenamiento para ${receiptType}. NO se requiere autorización.`);
-        // Continuar con la validación normal, no marcar como requiere autorización
+        console.log(`✅ Recibo cumple TODAS las condiciones del entrenamiento para ${receiptType}. Aprobado por entrenamiento.`);
+        approvedByTraining = true;
+        // Marcar que este recibo fue aprobado por entrenamiento - esto permitirá saltar validaciones estrictas
       } else {
-        console.log(`⚠️ Recibo NO cumple todas las condiciones del entrenamiento. Requiere autorización.`);
+        console.log(`⚠️ Recibo NO cumple todas las condiciones del entrenamiento. Faltan:`, {
+          valor: !hasValor,
+          comprobante: !hasComprobante,
+          productoDestino: !hasProductoDestino,
+          fecha: !hasFecha
+        });
         // Si es captura sin recibo físico y no cumple condiciones, pedir autorización
         if (data.isScreenshot && !hasPhysicalReceiptNumber) {
           if (!hasAnyTransactionId) {
@@ -643,11 +660,19 @@ const App: React.FC = () => {
     // =====================================================
     // 1. CALIDAD DE IMAGEN
     // =====================================================
-    if (!data.isReadable || data.imageQualityScore < MIN_QUALITY_SCORE) {
-      return {
-        status: ValidationStatus.LOW_QUALITY,
-        message: `Calidad insuficiente (${data.imageQualityScore}/100, requiere ${MIN_QUALITY_SCORE}).`
-      };
+    // Si fue aprobado por entrenamiento, ser más flexible con la calidad
+    const minQualityForThisRecord = approvedByTraining ? Math.max(MIN_QUALITY_SCORE - 10, 50) : MIN_QUALITY_SCORE;
+    
+    if (!data.isReadable || data.imageQualityScore < minQualityForThisRecord) {
+      if (approvedByTraining) {
+        console.log(`⚠️ Calidad baja pero aprobado por entrenamiento: ${data.imageQualityScore}/100 (mínimo: ${minQualityForThisRecord})`);
+        // Continuar con la validación, pero con advertencia
+      } else {
+        return {
+          status: ValidationStatus.LOW_QUALITY,
+          message: `Calidad insuficiente (${data.imageQualityScore}/100, requiere ${MIN_QUALITY_SCORE}).`
+        };
+      }
     }
 
     // =====================================================
@@ -858,8 +883,8 @@ const App: React.FC = () => {
     const isConvenioValid = validConvenioValues.includes(extractedAcc);
     const isRefValid = COMMON_REFERENCES.some(ref => normalizeAccount(ref) === extractedAcc);
 
-    // Permitir si es tarjeta autorizada o Cervecería Unión
-    if (!isAccountValid && !isConvenioValid && !isRefValid && !isCreditCardPayment && !isCerveceriaUnion) {
+    // Permitir si es tarjeta autorizada, Cervecería Unión, O si fue aprobado por entrenamiento
+    if (!isAccountValid && !isConvenioValid && !isRefValid && !isCreditCardPayment && !isCerveceriaUnion && !approvedByTraining) {
       const relaxedMatch = [...currentAccounts, ...currentConvenios].some(item => {
         const normAllowed = normalizeAccount(item.value);
         return extractedAcc.includes(normAllowed) || (data.rawText && data.rawText.replace(/\s/g, '').includes(normAllowed));
@@ -871,6 +896,11 @@ const App: React.FC = () => {
           message: `Cuenta/Convenio '${data.accountOrConvenio || 'No detectado'}' no autorizado.`
         };
       }
+    }
+    
+    // Si fue aprobado por entrenamiento, log para debug
+    if (approvedByTraining) {
+      console.log(`✅ Recibo aprobado por entrenamiento - saltando validación estricta de cuenta/convenio`);
     }
 
     // =====================================================
