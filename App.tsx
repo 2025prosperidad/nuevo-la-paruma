@@ -570,7 +570,7 @@ const App: React.FC = () => {
 
     // 0-D. VALIDACIÓN GENÉRICA CON ENTRENAMIENTOS - APLICA A TODOS LOS TIPOS DE RECIBO
     // Verificar si hay entrenamientos que indican que este tipo de recibo debe aceptarse
-    const receiptType = detectReceiptType(data);
+    // (receiptType ya fue declarado arriba en la línea 514)
     const hasPhysicalReceiptNumber = Boolean(data.rrn || data.recibo || data.apro);
     const hasAnyTransactionId = Boolean(data.rrn || data.recibo || data.apro || data.operacion || data.comprobante || data.uniqueTransactionId);
 
