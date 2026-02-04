@@ -12,6 +12,7 @@ const ENABLE_DRIVE_IMAGES = true; // ✅ ACTIVADO para guardar imágenes
 const CONSIGNACIONES_SHEET = 'Hoja 1'; // Tu hoja actual de consignaciones
 const ACCOUNTS_SHEET_NAME = 'Cuentas'; // Nueva hoja para convenios/cuentas
 const TRAINING_SHEET_NAME = 'Entrenamientos'; // Nueva hoja para datos de entrenamiento
+const RECEIPT_TYPES_SHEET_NAME = 'TiposRecibo'; // Nueva hoja para tipos de recibo
 
 // ===========================================
 // FUNCIÓN GET - Lee datos y configuración
@@ -53,12 +54,12 @@ function doGet(e) {
     }
   }
   
-  // NUEVO: Si solicita datos de entrenamiento
-  if (e.parameter.action === 'training') {
+  // NUEVO: Si solicita configuración de tipos de recibo
+  if (e.parameter.action === 'receiptTypes') {
     try {
-      const trainingData = getTrainingData();
+      const receiptTypes = getReceiptTypes();
       return ContentService
-        .createTextOutput(JSON.stringify({ status: 'success', data: trainingData }))
+        .createTextOutput(JSON.stringify({ status: 'success', data: receiptTypes }))
         .setMimeType(ContentService.MimeType.JSON);
     } catch (error) {
       return ContentService
@@ -212,6 +213,24 @@ function doPost(e) {
         .createTextOutput(JSON.stringify({ 
           status: 'success', 
           message: `${result.saved} registros de entrenamiento guardados correctamente`,
+          saved: result.saved
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // NUEVO: Guardar configuración de tipos de recibo
+    if (payload && typeof payload === 'object' && payload.action === 'saveReceiptTypes') {
+      Logger.log('Detectado action=saveReceiptTypes');
+      
+      if (!payload.receiptTypes || !Array.isArray(payload.receiptTypes)) {
+        throw new Error('Falta el campo receiptTypes o no es un array');
+      }
+      
+      const result = saveReceiptTypes(payload.receiptTypes);
+      return ContentService
+        .createTextOutput(JSON.stringify({ 
+          status: 'success', 
+          message: `${result.saved} tipos de recibo guardados correctamente`,
           saved: result.saved
         }))
         .setMimeType(ContentService.MimeType.JSON);
@@ -869,6 +888,91 @@ function getTrainingData() {
     
   } catch (error) {
     Logger.log('❌ Error en getTrainingData: ' + error.toString());
+    throw error;
+  }
+}
+
+// ===========================================
+// GESTIÓN DE CONFIGURACIÓN DE TIPOS DE RECIBO
+// ===========================================
+function getOrCreateReceiptTypesSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(RECEIPT_TYPES_SHEET_NAME);
+  
+  if (!sheet) {
+    sheet = ss.insertSheet(RECEIPT_TYPES_SHEET_NAME);
+    ensureReceiptTypesHeaders(sheet);
+  }
+  
+  return sheet;
+}
+
+function ensureReceiptTypesHeaders(sheet) {
+  if (sheet.getLastRow() === 0) {
+    const headers = ['Tipo', 'Etiqueta', 'Aceptado', 'Calidad Minima', 'Recibo Fisico', 'Notas', 'Fecha Actualizacion'];
+    sheet.appendRow(headers);
+    
+    const headerRange = sheet.getRange(1, 1, 1, headers.length);
+    headerRange.setFontWeight('bold');
+    headerRange.setBackground('#673ab7');
+    headerRange.setFontColor('#ffffff');
+  }
+}
+
+function getReceiptTypes() {
+  try {
+    const sheet = getOrCreateReceiptTypesSheet();
+    const data = sheet.getDataRange().getValues();
+    
+    if (data.length <= 1) {
+      return [];
+    }
+    
+    const headers = data[0];
+    const rows = data.slice(1);
+    
+    return rows.map(row => {
+      return {
+        type: row[0],
+        label: row[1],
+        isAccepted: row[2] === true || String(row[2]).toUpperCase() === 'TRUE',
+        minQualityScore: Number(row[3]) || 0,
+        requiresPhysicalReceipt: row[4] === true || String(row[4]).toUpperCase() === 'TRUE',
+        notes: row[5] || ''
+      };
+    });
+  } catch (error) {
+    Logger.log('❌ Error en getReceiptTypes: ' + error.toString());
+    throw error;
+  }
+}
+
+function saveReceiptTypes(receiptTypes) {
+  try {
+    const sheet = getOrCreateReceiptTypesSheet();
+    const lastRow = sheet.getLastRow();
+    
+    if (lastRow > 1) {
+      sheet.deleteRows(2, lastRow - 1);
+    }
+    
+    let saved = 0;
+    receiptTypes.forEach(config => {
+      sheet.appendRow([
+        config.type,
+        config.label,
+        config.isAccepted,
+        config.minQualityScore,
+        config.requiresPhysicalReceipt,
+        config.notes || '',
+        new Date()
+      ]);
+      saved++;
+    });
+    
+    return { saved };
+  } catch (error) {
+    Logger.log('❌ Error en saveReceiptTypes: ' + error.toString());
     throw error;
   }
 }

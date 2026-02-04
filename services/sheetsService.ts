@@ -474,3 +474,93 @@ export const fetchTrainingFromSheets = async (
     throw error;
   }
 };
+
+// ===========================================
+// GESTIÓN DE CONFIGURACIÓN DE TIPOS DE RECIBO
+// ===========================================
+
+export const fetchReceiptTypesFromSheets = async (
+  scriptUrl: string
+): Promise<any[]> => {
+  if (!scriptUrl) return [];
+
+  try {
+    const params = new URLSearchParams();
+    params.append('action', 'receiptTypes');
+    
+    const fetchUrl = `${scriptUrl}?${params.toString()}`;
+
+    const response = await fetch(fetchUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      credentials: 'omit',
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP Error: ${response.status}`);
+    }
+
+    const text = await response.text();
+    let result;
+    try {
+      result = JSON.parse(text);
+    } catch (e) {
+      console.error("Invalid JSON response from Sheet:", text);
+      throw new Error("La respuesta del servidor no es JSON válido.");
+    }
+
+    if (result.status === 'success' && Array.isArray(result.data)) {
+      return result.data;
+    }
+    return [];
+  } catch (error) {
+    console.error("Error fetching receipt types:", error);
+    throw error;
+  }
+};
+
+export const saveReceiptTypesToSheets = async (
+  receiptTypes: any[],
+  scriptUrl: string
+): Promise<{ success: boolean; message: string }> => {
+  if (!scriptUrl) {
+    return { success: false, message: "URL del Script no configurada" };
+  }
+
+  try {
+    const payload = {
+      action: 'saveReceiptTypes',
+      receiptTypes: receiptTypes
+    };
+    
+    const response = await fetch(scriptUrl, {
+      method: "POST",
+      redirect: 'follow',
+      credentials: 'omit',
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP Error: ${response.status}`);
+    }
+
+    const text = await response.text();
+    try {
+      const json = JSON.parse(text);
+      if (json.status === 'success') {
+        return { success: true, message: json.message || "Tipos de recibo sincronizados correctamente." };
+      } else if (json.status === 'error') {
+        return { success: false, message: `Error del Script: ${json.message}` };
+      }
+    } catch (e) {
+      return { success: false, message: `Respuesta inválida del servidor: ${text}` };
+    }
+
+    return { success: true, message: "Tipos de recibo guardados correctamente." };
+
+  } catch (error: any) {
+    console.error("Error saving receipt types:", error);
+    return { success: false, message: `Error: ${error.message || error.toString()}` };
+  }
+};

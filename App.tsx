@@ -12,7 +12,7 @@ import { TrainingSection } from './components/TrainingSection';
 import { ReceiptTypeConfigModal } from './components/ReceiptTypeConfig';
 import { analyzeReceipt, getAIConfig, saveAIConfig } from './services/aiService';
 import { incrementTrainingVersion, cleanExpiredCache, getCacheStats } from './services/cacheService';
-import { sendToGoogleSheets, fetchHistoryFromSheets, fetchAccountsFromSheets, saveAccountsToSheets, saveTrainingToSheets, fetchTrainingFromSheets } from './services/sheetsService';
+import { sendToGoogleSheets, fetchHistoryFromSheets, fetchAccountsFromSheets, saveAccountsToSheets, saveTrainingToSheets, fetchTrainingFromSheets, fetchReceiptTypesFromSheets, saveReceiptTypesToSheets } from './services/sheetsService';
 import { ConsignmentRecord, ProcessingStatus, ValidationStatus, ExtractedData, ConfigItem, TrainingRecord, TrainingDecision, ReceiptType, ReceiptTypeConfig, AIModel, AIConfig, GlobalConfig } from './types';
 import { ALLOWED_ACCOUNTS, ALLOWED_CONVENIOS, COMMON_REFERENCES, normalizeAccount, MIN_QUALITY_SCORE, GOOGLE_SCRIPT_URL, CERVECERIA_UNION_CLIENT_CODE, CERVECERIA_UNION_KEYWORDS, CERVECERIA_UNION_CONVENIOS, MIN_CONFIDENCE_SCORE, MIN_THERMAL_QUALITY_SCORE, ALLOWED_CREDIT_CARDS, CERVECERIA_UNION_INTERNAL_REFS, DEFAULT_AI_CONFIG, DEFAULT_GLOBAL_CONFIG } from './constants';
 import { processImageFile } from './utils/imageCompression';
@@ -63,7 +63,7 @@ const App: React.FC = () => {
   const [receiptTypeConfigOpen, setReceiptTypeConfigOpen] = useState(false);
 
   // AI Model Configuration
-  const [aiConfig, setAiConfig] = useState<AIConfig>(DEFAULT_AI_CONFIG);
+  const [aiConfig, setAiConfig] = useState<AIConfig>(getAIConfig() || DEFAULT_AI_CONFIG);
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig>(DEFAULT_GLOBAL_CONFIG);
   const [cacheStats, setCacheStats] = useState({ size: 0, oldestTimestamp: null as number | null });
 
@@ -111,11 +111,24 @@ const App: React.FC = () => {
     };
     loadConfig();
 
-    // Cargar configuración de IA
-    const savedAIConfig = getAIConfig();
-    if (savedAIConfig) {
-      setAiConfig(savedAIConfig);
-    }
+    // Load receipt types from Sheets or local
+    const loadReceiptTypes = async () => {
+      try {
+        const sheetTypes = await fetchReceiptTypesFromSheets(scriptUrl);
+        if (sheetTypes && sheetTypes.length > 0) {
+          setReceiptTypeConfigs(sheetTypes);
+          localStorage.setItem('receipt_type_configs', JSON.stringify(sheetTypes));
+        } else {
+          const saved = localStorage.getItem('receipt_type_configs');
+          if (saved) setReceiptTypeConfigs(JSON.parse(saved));
+        }
+      } catch (err) {
+        console.warn("Could not load receipt types from sheet, using local/defaults");
+        const saved = localStorage.getItem('receipt_type_configs');
+        if (saved) setReceiptTypeConfigs(JSON.parse(saved));
+      }
+    };
+    loadReceiptTypes();
 
     // Actualizar estadísticas de caché
     const stats = getCacheStats();
@@ -123,7 +136,7 @@ const App: React.FC = () => {
 
     // Limpiar caché expirado
     cleanExpiredCache(aiConfig.cacheExpiration);
-  }, []);
+  }, [scriptUrl]); // Add scriptUrl to dependencies for loadReceiptTypes
 
   // Force update URL if the constant changes (Auto-fix for user)
   useEffect(() => {
@@ -445,24 +458,30 @@ const App: React.FC = () => {
   }, [scriptUrl]);
 
   // 12. Cargar configuración de tipos de recibo desde localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem('receipt_type_configs');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setReceiptTypeConfigs(parsed);
-        console.log(`Configuración de tipos de recibo cargada: ${parsed.length} tipos`);
-      } catch (e) {
-        console.error('Error parsing receipt type configs from localStorage', e);
-      }
-    }
-  }, []);
+  // This useEffect is now redundant as loadReceiptTypes handles it
+  // useEffect(() => {
+  //   const saved = localStorage.getItem('receipt_type_configs');
+  //   if (saved) {
+  //     try {
+  //       const parsed = JSON.parse(saved);
+  //       setReceiptTypeConfigs(parsed);
+  //       console.log(`Configuración de tipos de recibo cargada: ${parsed.length} tipos`);
+  //     } catch (e) {
+  //       console.error('Error parsing receipt type configs from localStorage', e);
+  //     }
+  //   }
+  // }, []);
 
   // 13. Guardar configuración de tipos de recibo
-  const handleSaveReceiptTypeConfig = (configs: ReceiptTypeConfig[]) => {
+  const handleSaveReceiptTypeConfig = async (configs: ReceiptTypeConfig[]) => {
     setReceiptTypeConfigs(configs);
     localStorage.setItem('receipt_type_configs', JSON.stringify(configs));
     console.log('Configuración de tipos de recibo guardada:', configs.length);
+
+    // Auto-sync to sheets if URL is present
+    if (scriptUrl) {
+      await saveReceiptTypesToSheets(configs, scriptUrl);
+    }
   };
 
   // 14. Guardar configuración de IA
