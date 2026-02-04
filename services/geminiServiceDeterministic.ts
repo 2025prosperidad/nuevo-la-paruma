@@ -76,40 +76,42 @@ Analyze this Colombian bank receipt image. Extract data PRECISELY and DETERMINIS
 ${trainingContext}
 
 CRITICAL RULES FOR BANCOLOMBIA APP:
-- Screenshots of "¡Pago exitoso!" or "¡Transferencia exitosa!" are VALID
-- Comprobante (10 digits) is the main unique number
-- Client code 10813353 = La Paruma (Cervecería Unión)
-- Convenio 32137 = Cervecería Unión T R
-- Partial account numbers (*8520, *1640) are acceptable
+- Screenshots of "¡Pago exitoso!" or "¡Transferencia exitosa!" are VALID.
+- For "Transferencia exitosa", "Producto destino" is the account number.
+- "Distribuidora La Paruma Sas" or "La Paruma" is our company. Extract it as bankName or check its destination account.
+- Comprobante (10 digits) is the main unique number.
+- Client code 10813353 = La Paruma (Cervecería Unión).
+- Convenio 32137 = Cervecería Unión T R.
+- Partial account numbers (*8520, *1640) or full ones (245-000209-50) are acceptable.
 
 FIELDS TO EXTRACT:
 
-1. **bankName**: Bank name (e.g., "Bancolombia", "Banco Agrario")
-2. **city**: Transaction city (if visible)
-3. **accountOrConvenio**: Destination account or convenio code
-4. **amount**: Amount in COP without formatting (e.g., 1400000)
-5. **date**: Date in YYYY-MM-DD format
-6. **time**: Time in HH:MM format
-7. **comprobante**: 10-digit comprobante number (Bancolombia App)
-8. **operacion**: Operation number (if different from comprobante)
-9. **rrn**: RRN number (Redeban receipts)
-10. **recibo**: Receipt number
-11. **apro**: Approval code
-12. **paymentReference**: Payment reference or client code
-13. **clientCode**: Client code (10813353 for Cervunion)
-14. **imageQualityScore**: Quality 0-100 (app screenshots should be 90-100)
-15. **confidenceScore**: Confidence 0-100 (95-100 if all fields are clear)
-16. **isScreenshot**: true if app screenshot
-17. **hasPhysicalReceipt**: false for app screenshots
-18. **isReadable**: true if legible
-19. **rawText**: All visible text
+1. **bankName**: Bank name or Receiver name if bank is implicit (e.g., "Bancolombia", "Distribuidora La Paruma Sas").
+2. **city**: Transaction city (if visible).
+3. **accountOrConvenio**: Destination account number or convenio code. Look for "Producto destino" or "Convenio".
+4. **amount**: Amount in COP without formatting (e.g., 1400000).
+5. **date**: Date in YYYY-MM-DD format.
+6. **time**: Time in HH:MM format.
+7. **comprobante**: 10-digit comprobante number.
+8. **operacion**: Operation number.
+9. **rrn**: RRN number.
+10. **recibo**: Receipt number.
+11. **apro**: Approval code.
+12. **paymentReference**: Payment reference or client code.
+13. **clientCode**: Client code (10813353 for Cervunion).
+14. **imageQualityScore**: Quality 0-100 (app screenshots should be 90-100).
+15. **confidenceScore**: Confidence 0-100 (95-100 if all fields are clear).
+16. **isScreenshot**: true if app screenshot.
+17. **hasPhysicalReceipt**: false for app screenshots.
+18. **isReadable**: true if legible.
+19. **rawText**: All visible text.
 
 IMPORTANT:
-- Be DETERMINISTIC: same image = same result
-- For Bancolombia App, the 10-digit comprobante is CRITICAL
-- If you see "Código cliente cervunion: 10813353", extract it
-- Quality of app screenshots should be 90-100
-- Confidence should be 95-100 if all fields are clear
+- Be DETERMINISTIC: same image = same result.
+- For Bancolombia "Transferencia exitosa", extract the full account from "Producto destino".
+- If "Distribuidora La Paruma Sas" is visible, the receipt is valid for our company.
+- Quality of app screenshots should be 90-100.
+- Confidence should be 95-100 if all fields are clear.
 
 Return ONLY valid JSON, no markdown.
 `;

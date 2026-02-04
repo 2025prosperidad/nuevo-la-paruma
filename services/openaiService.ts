@@ -39,67 +39,59 @@ EJEMPLOS DE ENTRENAMIENTOS PREVIOS:
 ${examplesText}
 
 REGLAS ESPECÍFICAS BANCOLOMBIA APP:
-- Capturas de "¡Pago exitoso!" o "¡Transferencia exitosa!" son VÁLIDAS
-- Comprobante de 10 dígitos es el número único principal (campo "comprobante")
-- Código cliente 10813353 = La Paruma (Cervecería Unión)
-- Convenio 32137 = Cervecería Unión T R
-- Cuenta destino puede aparecer parcial (*8520, *1640, *8421, *4586, etc.) - extraer los 4 dígitos visibles
-- Si ves "Producto destino" con cuenta Bancolombia, extraer el número completo si está visible
+- Capturas de "¡Pago exitoso!" o "¡Transferencia exitosa!" son VÁLIDAS.
+- Para "Transferencia exitosa", el "Producto destino" es el número de cuenta.
+- "Distribuidora La Paruma Sas" o "La Paruma" es nuestra empresa. Extráelo como bankName o verifica su cuenta destino.
+- Comprobante de 10 dígitos es el número único principal (campo "comprobante").
+- Código cliente 10813353 = La Paruma (Cervecería Unión).
+- Convenio 32137 = Cervecería Unión T R.
+- Cuenta destino puede aparecer parcial (*8520, *1640, *8421, *4586) o completa (245-000209-50).
 
 CAMPOS A EXTRAER:
 
-1. **bankName** (string): Nombre del banco (ej: "Bancolombia", "Banco Agrario", "Nequi")
+1. **bankName** (string): Nombre del banco o Receptor (ej: "Bancolombia", "Distribuidora La Paruma Sas").
 
-2. **city** (string | null): Ciudad donde se hizo la transacción (si está visible)
+2. **city** (string | null): Ciudad donde se hizo la transacción (si está visible).
 
 3. **accountOrConvenio** (string): 
-   - Para Bancolombia App: el número de cuenta destino (ej: "24500020950", "24500081160")
-   - Para recibos de convenio: el código del convenio (ej: "32137", "56885")
-   - Si solo ves últimos 4 dígitos (*8520), extraer esos 4 dígitos: "8520"
+   - Para Bancolombia App: el número de cuenta destino completo o parcial. Look for "Producto destino".
+   - Para recibos de convenio: el código del convenio (ej: "32137", "56885").
+   - Si solo ves últimos 4 dígitos (*8520), extraer esos 4 dígitos: "8520".
 
-4. **amount** (number): Monto en pesos colombianos SIN puntos ni comas (ej: 1400000, 335000, 1197742)
+4. **amount** (number): Monto en pesos colombianos SIN puntos ni comas (ej: 1400000, 335000, 1197742).
 
-5. **date** (string): Fecha en formato YYYY-MM-DD (ej: "2026-01-23")
+5. **date** (string): Fecha en formato YYYY-MM-DD (ej: "2026-01-23").
 
-6. **time** (string | null): Hora en formato HH:MM (ej: "12:30", "09:17", "13:19")
+6. **time** (string | null): Hora en formato HH:MM (ej: "12:30", "09:17", "13:19").
 
-7. **comprobante** (string | null): Número de comprobante de 10 dígitos (ej: "0000003046", "0000048062", "0000010115")
-   - Este es el número MÁS IMPORTANTE en Bancolombia App
-   - Aparece como "Comprobante No." en la pantalla
+7. **comprobante** (string | null): Número de comprobante de 10 dígitos (ej: "0000003046", "0000048062", "0000010115").
+   - Este es el número MÁS IMPORTANTE en Bancolombia App.
+   - Aparece como "Comprobante No." en la pantalla.
 
-8. **operacion** (string | null): Número de operación (si es diferente al comprobante)
+8. **operacion** (string | null): Número de operación (si es diferente al comprobante).
 
-9. **paymentReference** (string | null): Referencia de pago o código cliente (puede repetirse)
+9. **paymentReference** (string | null): Referencia de pago o código cliente (puede repetirse).
 
-10. **clientCode** (string | null): Código cliente Cervunión (10813353) si está visible
+10. **clientCode** (string | null): Código cliente Cervunión (10813353) si está visible.
 
-11. **imageQualityScore** (number): Calidad de 0-100
-    - 90-100: Excelente (captura de app clara)
-    - 70-89: Buena
-    - 50-69: Aceptable
-    - 0-49: Mala
+11. **imageQualityScore** (number): Calidad de 0-100 (90-100 para capturas de app).
 
-12. **confidenceScore** (number): Tu confianza en la extracción de 0-100
-    - 95-100: Muy seguro (todos los campos claros)
-    - 80-94: Seguro (campos principales claros)
-    - 60-79: Moderado (algunos campos dudosos)
-    - 0-59: Bajo (muchos campos ilegibles)
+12. **confidenceScore** (number): Tu confianza en la extracción de 0-100 (95-100 si es claro).
 
-13. **isScreenshot** (boolean): true si es captura de app, false si es foto de recibo físico
+13. **isScreenshot** (boolean): true si es captura de app, false si es foto de recibo físico.
 
-14. **hasPhysicalReceipt** (boolean): false para capturas de app, true para recibos térmicos
+14. **hasPhysicalReceipt** (boolean): false para capturas de app, true para recibos térmicos.
 
-15. **isReadable** (boolean): true si la imagen es legible
+15. **isReadable** (boolean): true si la imagen es legible.
 
-16. **rawText** (string): Todo el texto visible en la imagen
+16. **rawText** (string): Todo el texto visible en la imagen.
 
 IMPORTANTE:
-- Sé DETERMINISTA: la misma imagen debe dar siempre el mismo resultado
-- Para Bancolombia App, el comprobante de 10 dígitos es CRÍTICO
-- Si ves "Código cliente cervunion: 10813353", extraerlo en clientCode
-- Si ves cuenta parcial (*8520), extraer solo "8520" en accountOrConvenio
-- Calidad de capturas de app debe ser 90-100
-- Confianza debe ser 95-100 si todos los campos están claros
+- Sé DETERMINISTA: la misma imagen debe dar siempre el mismo resultado.
+- Para Bancolombia "Transferencia exitosa", extraer el número de "Producto destino".
+- Si aparece "Distribuidora La Paruma Sas", es para nosotros.
+- Calidad de capturas de app debe ser 90-100.
+- Confianza debe ser 95-100 si todos los campos están claros.
 
 Responde ÚNICAMENTE con un objeto JSON válido, sin markdown ni explicaciones adicionales.`;
 }

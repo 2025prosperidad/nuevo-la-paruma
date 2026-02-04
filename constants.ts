@@ -101,7 +101,9 @@ export const CERVECERIA_UNION_KEYWORDS = [
   'cerveceria uni',    // Para casos abreviados como "CERVECERIA UNI-N"
   'ceo 1709',          // CEO Cervecería
   'cerveceria s.a',
-  'cervecería s.a'
+  'cervecería s.a',
+  'la paruma',
+  'distribuidora la paruma'
 ];
 
 // Umbral mínimo de confianza de la IA para aprobar automáticamente
