@@ -558,12 +558,18 @@ const App: React.FC = () => {
     const bank = data.bankName?.toLowerCase() || '';
 
     // Prioridad por palabras clave en el texto (más fiable que el nombre del banco)
-    if (text.includes('pago exitoso') || text.includes('transferencia exitosa') || text.includes('comprobante no.')) return ReceiptType.BANCOLOMBIA_APP;
+    if (text.includes('pago exitoso') ||
+      text.includes('transferencia exitosa') ||
+      text.includes('transacción exitosa') ||
+      text.includes('comprobante no.') ||
+      text.includes('comprobante de transferencia')) return ReceiptType.BANCOLOMBIA_APP;
+
     if (text.includes('redeban') || text.includes('corresponsal')) return ReceiptType.REDEBAN_THERMAL;
     if (text.includes('nequi')) return ReceiptType.NEQUI;
 
     // Luego por nombre de banco si las palabras clave no fueron definitivas
     if (bank.includes('bancolombia')) return ReceiptType.BANCOLOMBIA_APP;
+    if (bank.includes('la paruma') || bank.includes('distribuidora')) return ReceiptType.BANCOLOMBIA_APP; // Confusión común IA: beneficiario por banco
     if (bank.includes('agrario')) return ReceiptType.BANCO_AGRARIO;
     if (bank.includes('davivienda')) return ReceiptType.DAVIVIENDA;
     if (bank.includes('bogota') || bank.includes('bogotá')) return ReceiptType.BANCO_BOGOTA;
@@ -579,17 +585,60 @@ const App: React.FC = () => {
     currentAccounts: ConfigItem[],
     currentConvenios: ConfigItem[]
   ): { status: ValidationStatus, message: string } => {
-    // DEBUG: Log para ver qué entrenamientos hay disponibles
-    console.log('🔍 Validando recibo. Entrenamientos disponibles:', trainingRecords.length);
-    if (trainingRecords.length > 0) {
-      console.log('📚 Tipos de entrenamiento:', trainingRecords.map(tr => `${tr.receiptType} (${tr.decision})`).join(', '));
-    }
-
-    // =====================================================
-    // 0. VALIDACIÓN POR TIPO DE RECIBO (PRIMERO)
-    // =====================================================
+    // 0. DETECTAR TIPO Y TRABAJAR CON CONFIGURACIÓN
     const receiptType = detectReceiptType(data);
     const typeConfig = receiptTypeConfigs.find(c => c.type === receiptType);
+    const rawText = data.rawText?.toLowerCase() || '';
+
+    // =====================================================
+    // 1. DETECCIÓN DE MARCADORES DE ALTA CONFIANZA (PRIORIDAD)
+    // =====================================================
+
+    // 1-A. Identificar si es Cervecería Unión (High Trust)
+    const isCerveceriaByKeyword = CERVECERIA_UNION_KEYWORDS.some(keyword =>
+      rawText.includes(keyword.toLowerCase())
+    );
+    const normalizedConvenio = normalizeAccount(data.accountOrConvenio || '');
+    const isCerveceriaByConvenio = CERVECERIA_UNION_CONVENIOS.some(conv =>
+      normalizeAccount(conv) === normalizedConvenio
+    );
+    const hasClientCodeInRef = data.paymentReference?.includes(CERVECERIA_UNION_CLIENT_CODE) ||
+      data.paymentReference?.includes('10813353') ||
+      rawText.includes('10813353');
+    const isCerveceriaUnion = isCerveceriaByKeyword || isCerveceriaByConvenio || hasClientCodeInRef;
+
+    // 1-B. Identificar si es Tarjeta Autorizada
+    let detectedCardLast4: string | null = null;
+    if (data.isCreditCardPayment && data.creditCardLast4) {
+      detectedCardLast4 = data.creditCardLast4;
+    } else {
+      for (const card of ALLOWED_CREDIT_CARDS) {
+        if (rawText.includes(card) || rawText.includes(`**** ${card}`) || rawText.includes(` * ${card}`)) {
+          detectedCardLast4 = card;
+          break;
+        }
+      }
+    }
+    const isCreditCardPayment = detectedCardLast4 !== null && ALLOWED_CREDIT_CARDS.includes(detectedCardLast4);
+
+    // 1-C. Verificar entrenamientos ACCEPT
+    const acceptTrainings = trainingRecords.filter(tr =>
+      tr.receiptType === receiptType && tr.decision === TrainingDecision.ACCEPT
+    );
+
+    // Comprobar si cumple condiciones de entrenamiento
+    const hasAnyId = Boolean(data.rrn || data.recibo || data.apro || data.operacion || data.comprobante || data.uniqueTransactionId);
+    const hasRequiredData = Boolean(data.amount && data.amount > 0) &&
+      Boolean(data.date && String(data.date).trim() !== '') &&
+      (hasAnyId || data.accountOrConvenio);
+    const approvedByTraining = acceptTrainings.length > 0 && hasRequiredData;
+
+    // MARCADOR GLOBAL DE ALTA CONFIANZA
+    const isHighTrust = isCerveceriaUnion || isCreditCardPayment || approvedByTraining;
+
+    // =====================================================
+    // 2. VALIDACIONES DE TIPO Y RECHAZOS POR CONFIGURACIÓN
+    // =====================================================
 
     // Si el tipo de recibo no está aceptado, rechazar inmediatamente
     if (typeConfig && !typeConfig.isAccepted) {
@@ -599,31 +648,37 @@ const App: React.FC = () => {
       };
     }
 
-    // Verificar calidad mínima según el tipo de recibo
-    const minQualityRequired = typeConfig?.minQualityScore || MIN_QUALITY_SCORE;
+    // =====================================================
+    // 3. CALIDAD DE IMAGEN (CON TOLERANCIA PARA HIGH TRUST)
+    // =====================================================
+    const baseMinQuality = typeConfig?.minQualityScore || MIN_QUALITY_SCORE;
+    const minQualityRequired = isHighTrust ? Math.max(baseMinQuality - 15, 45) : baseMinQuality;
+
     if (data.imageQualityScore < minQualityRequired) {
       return {
         status: ValidationStatus.LOW_QUALITY,
-        message: `⛔ RECHAZADO: Calidad insuficiente para ${typeConfig?.label || 'este tipo'} (${data.imageQualityScore}/100, requiere ${minQualityRequired}).`
+        message: `⛔ RECHAZADO: Calidad insuficiente (${data.imageQualityScore}/100, requiere ${minQualityRequired}${isHighTrust ? ' [Reducido por Alta Confianza]' : ''}).`
       };
     }
 
-    // Verificar si requiere número de recibo físico
-    if (typeConfig && typeConfig.requiresPhysicalReceipt) {
-      const hasPhysicalNumber = Boolean(data.rrn || data.recibo || data.apro);
-      if (!hasPhysicalNumber) {
-        return {
-          status: ValidationStatus.MISSING_RECEIPT_NUMBER,
-          message: `⛔ RECHAZADO: ${typeConfig.label} requiere número de recibo físico (RRN/RECIBO/APRO).`
-        };
-      }
+    // 3-B. Calidad especial para térmicos (Redeban)
+    const isThermalReceipt = receiptType === ReceiptType.REDEBAN_THERMAL ||
+      rawText.includes('redeban') ||
+      rawText.includes('corresponsal');
+    const thermalMinQuality = isHighTrust ? Math.max(MIN_THERMAL_QUALITY_SCORE - 10, 55) : MIN_THERMAL_QUALITY_SCORE;
+
+    if (isThermalReceipt && data.imageQualityScore < thermalMinQuality) {
+      return {
+        status: ValidationStatus.LOW_QUALITY,
+        message: `⛔ RECHAZADO: Recibo térmico con calidad insuficiente (${data.imageQualityScore}/100, requiere ${thermalMinQuality}).`
+      };
     }
 
     // =====================================================
-    // 1. VALIDACIONES CRÍTICAS DE SEGURIDAD
+    // 4. VALIDACIONES CRÍTICAS DE SEGURIDAD
     // =====================================================
 
-    // 1-A. VERIFICAR FECHA (CRÍTICO - SIN FECHA = RECHAZO)
+    // 4-A. VERIFICAR FECHA (CRÍTICO - SIN FECHA = RECHAZO)
     if (!data.date || data.date.trim() === '') {
       return {
         status: ValidationStatus.MISSING_DATE,
@@ -631,81 +686,13 @@ const App: React.FC = () => {
       };
     }
 
-    // 1-Abis. VERIFICAR RANGO DE FECHA PERMITIDO
+    // 4-B. VERIFICAR RANGO DE FECHA PERMITIDO
     if (globalConfig.startDate && globalConfig.endDate) {
       const receiptDate = data.date; // YYYY-MM-DD
       if (receiptDate < globalConfig.startDate || receiptDate > globalConfig.endDate) {
         return {
           status: ValidationStatus.DATE_OUT_OF_RANGE,
           message: `⛔ RECHAZADO: Fecha ${receiptDate} fuera del rango permitido (${globalConfig.startDate} a ${globalConfig.endDate}).`
-        };
-      }
-    }
-
-    // 0-B. VERIFICAR CALIDAD DE IMAGEN ESPECIAL PARA RECIBOS TÉRMICOS
-    // Los recibos Redeban/térmicos necesitan mayor calidad
-    const isThermalReceipt = data.rawText?.toLowerCase().includes('redeban') ||
-      data.rawText?.toLowerCase().includes('recaudo') ||
-      data.rawText?.toLowerCase().includes('corresponsal') ||
-      (data.rrn || data.recibo || data.apro);
-
-    if (isThermalReceipt && data.imageQualityScore < MIN_THERMAL_QUALITY_SCORE) {
-      return {
-        status: ValidationStatus.LOW_QUALITY,
-        message: `⛔ RECHAZADO: Recibo térmico con calidad insuficiente (${data.imageQualityScore}/100, requiere ${MIN_THERMAL_QUALITY_SCORE}). Los recibos Redeban borrosos no se pueden validar con seguridad.`
-      };
-    }
-
-    // 0-D. VALIDACIÓN GENÉRICA CON ENTRENAMIENTOS - APLICA A TODOS LOS TIPOS DE RECIBO
-    // Verificar si hay entrenamientos que indican que este tipo de recibo debe aceptarse
-    // (receiptType ya fue declarado arriba en la línea 514)
-    const hasPhysicalReceiptNumber = Boolean(data.rrn || data.recibo || data.apro);
-    const hasAnyTransactionId = Boolean(data.rrn || data.recibo || data.apro || data.operacion || data.comprobante || data.uniqueTransactionId);
-
-    console.log(`🔍 Validando recibo. Tipo: ${receiptType}, Banco: ${data.bankName}, isScreenshot: ${data.isScreenshot}, hasPhysicalReceipt: ${hasPhysicalReceiptNumber}`);
-
-    // Buscar entrenamientos ACCEPT para este tipo de recibo (genérico para cualquier banco)
-    const acceptTrainings = trainingRecords.filter(tr =>
-      tr.receiptType === receiptType && tr.decision === TrainingDecision.ACCEPT
-    );
-
-    console.log(`📚 Encontrados ${acceptTrainings.length} entrenamientos ACCEPT para tipo ${receiptType}`);
-
-    // Si hay entrenamientos ACCEPT, verificar si el recibo cumple las condiciones básicas
-    let approvedByTraining = false;
-
-    if (acceptTrainings.length > 0) {
-      // Verificar condiciones BÁSICAS según los entrenamientos (siempre que los datos críticos existan)
-      const hasComprobante = Boolean(data.comprobante && String(data.comprobante).trim() !== '');
-      const hasOperacion = Boolean(data.operacion && String(data.operacion).trim() !== '');
-      const hasAnyId = hasComprobante || hasOperacion || Boolean(data.rrn) || Boolean(data.uniqueTransactionId);
-      const hasValor = Boolean(data.amount && data.amount > 0);
-      const hasFecha = Boolean(data.date && String(data.date).trim() !== '');
-
-      const hasRequiredData = hasValor && hasFecha && (hasAnyId || data.accountOrConvenio);
-
-      if (hasRequiredData) {
-        console.log(`✅ Recibo cumple condiciones básicas del entrenamiento para ${receiptType}. Aprobado por entrenamiento.`);
-        approvedByTraining = true;
-      } else {
-        console.log(`⚠️ Recibo NO cumple condiciones mínimas del entrenamiento.`, { valor: hasValor, fecha: hasFecha, id: hasAnyId });
-      }
-    }
-
-    // =====================================================
-    // 1. CALIDAD DE IMAGEN
-    // =====================================================
-    // Si fue aprobado por entrenamiento, ser más flexible con la calidad
-    const minQualityForThisRecord = approvedByTraining ? Math.max(MIN_QUALITY_SCORE - 10, 50) : MIN_QUALITY_SCORE;
-
-    if (!data.isReadable || data.imageQualityScore < minQualityForThisRecord) {
-      if (approvedByTraining) {
-        console.log(`⚠️ Calidad baja pero aprobado por entrenamiento: ${data.imageQualityScore}/100 (mínimo: ${minQualityForThisRecord})`);
-        // Continuar con la validación, pero con advertencia
-      } else {
-        return {
-          status: ValidationStatus.LOW_QUALITY,
-          message: `Calidad insuficiente (${data.imageQualityScore}/100, requiere ${MIN_QUALITY_SCORE}).`
         };
       }
     }
@@ -831,79 +818,7 @@ const App: React.FC = () => {
     const validAccountValues = currentAccounts.map(item => normalizeAccount(item.value));
     const validConvenioValues = currentConvenios.map(item => normalizeAccount(item.value));
 
-    // Verificar si es pago con tarjeta de crédito autorizada
-    const rawText = data.rawText?.toLowerCase() || '';
 
-    // Detectar tarjeta autorizada por múltiples métodos:
-    // 1. Por el campo isCreditCardPayment de Gemini
-    // 2. Por creditCardLast4 de Gemini
-    // 3. Por búsqueda en rawText
-    let detectedCardLast4: string | null = null;
-
-    // Método 1: Gemini detectó tarjeta
-    if (data.isCreditCardPayment && data.creditCardLast4) {
-      detectedCardLast4 = data.creditCardLast4;
-    }
-
-    // Método 2: Buscar en rawText los últimos 4 dígitos
-    if (!detectedCardLast4) {
-      for (const card of ALLOWED_CREDIT_CARDS) {
-        if (rawText.includes(card) || rawText.includes(`**** ${card}`) || rawText.includes(` * ${card}`)) {
-          detectedCardLast4 = card;
-          break;
-        }
-      }
-    }
-
-    const isCreditCardPayment = detectedCardLast4 !== null &&
-      ALLOWED_CREDIT_CARDS.includes(detectedCardLast4);
-
-    // Si es pago con tarjeta, usar los últimos 4 dígitos como referencia
-    if (isCreditCardPayment && detectedCardLast4) {
-      console.log(`💳 Pago con tarjeta detectado: **** ${detectedCardLast4}`);
-      data.paymentReference = detectedCardLast4;
-      data.creditCardLast4 = detectedCardLast4;
-      data.isCreditCardPayment = true;
-    }
-
-    // Verificar si es pago a Cervecería Unión por MÚLTIPLES MÉTODOS:
-    // 1. Por palabras clave en el texto
-    const isCerveceriaByKeyword = CERVECERIA_UNION_KEYWORDS.some(keyword =>
-      rawText.includes(keyword.toLowerCase())
-    );
-
-    // 2. Por número de convenio
-    const normalizedConvenio = normalizeAccount(data.accountOrConvenio || '');
-    const isCerveceriaByConvenio = CERVECERIA_UNION_CONVENIOS.some(conv =>
-      normalizeAccount(conv) === normalizedConvenio
-    );
-
-    // 3. Por referencia que contenga el código cliente
-    const hasClientCodeInRef = data.paymentReference?.includes(CERVECERIA_UNION_CLIENT_CODE) ||
-      data.paymentReference?.includes('10813353') ||
-      rawText.includes('10813353');
-
-    // Combinar todas las detecciones
-    const isCerveceriaUnion = isCerveceriaByKeyword || isCerveceriaByConvenio || hasClientCodeInRef;
-
-    // Si es Cervecería Unión, el código cliente debe ser 10813353
-    if (isCerveceriaUnion && data.clientCode !== CERVECERIA_UNION_CLIENT_CODE) {
-      // Auto-asignar el código si no lo detectó
-      data.clientCode = CERVECERIA_UNION_CLIENT_CODE;
-    }
-
-    // Si es Cervecería Unión y la referencia es un número interno del banco, reemplazarla
-    if (isCerveceriaUnion && data.paymentReference) {
-      const normalizedRef = normalizeAccount(data.paymentReference);
-      const isInternalRef = CERVECERIA_UNION_INTERNAL_REFS.some(
-        internalRef => normalizeAccount(internalRef) === normalizedRef
-      );
-
-      if (isInternalRef) {
-        console.log(`🔄 Reemplazando referencia interna ${data.paymentReference} por código cliente ${CERVECERIA_UNION_CLIENT_CODE}`);
-        data.paymentReference = CERVECERIA_UNION_CLIENT_CODE;
-      }
-    }
 
     if (!extractedAcc && data.paymentReference) {
       const possibleAccountInRef = currentAccounts.find(accItem =>

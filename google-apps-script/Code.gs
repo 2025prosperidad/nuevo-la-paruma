@@ -71,6 +71,23 @@ function doGet(e) {
     }
   }
   
+  // NUEVO: Si solicita datos de entrenamiento
+  if (e.parameter.action === 'training') {
+    try {
+      const trainingData = getTrainingData();
+      return ContentService
+        .createTextOutput(JSON.stringify({ status: 'success', data: trainingData }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (error) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ 
+          status: 'error', 
+          message: error.toString() 
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+  
   // Por defecto: obtener registros de consignaciones
   const sheet = ss.getSheetByName(CONSIGNACIONES_SHEET);
   
