@@ -168,7 +168,7 @@ export const OPENAI_API_KEY = getOpenAIKey();
 
 // Configuración por defecto de IA
 export const DEFAULT_AI_CONFIG = {
-  preferredModel: 'GEMINI' as const,
+  preferredModel: 'GPT4_MINI' as const,
   enableCache: true,
   cacheExpiration: 720, // 30 días en horas
   useTrainingExamples: true,

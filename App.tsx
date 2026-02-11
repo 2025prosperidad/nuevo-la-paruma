@@ -61,6 +61,8 @@ const App: React.FC = () => {
   // Receipt Type Configuration
   const [receiptTypeConfigs, setReceiptTypeConfigs] = useState<ReceiptTypeConfig[]>([]);
   const [receiptTypeConfigOpen, setReceiptTypeConfigOpen] = useState(false);
+  const [isLoadingReceiptTypes, setIsLoadingReceiptTypes] = useState(false);
+  const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
 
   // AI Model Configuration
   const [aiConfig, setAiConfig] = useState<AIConfig>(getAIConfig() || DEFAULT_AI_CONFIG);
@@ -113,6 +115,7 @@ const App: React.FC = () => {
 
     // Load receipt types from Sheets or local
     const loadReceiptTypes = async () => {
+      setIsLoadingReceiptTypes(true);
       try {
         const sheetTypes = await fetchReceiptTypesFromSheets(scriptUrl);
         if (sheetTypes && sheetTypes.length > 0) {
@@ -126,6 +129,8 @@ const App: React.FC = () => {
         console.warn("Could not load receipt types from sheet, using local/defaults");
         const saved = localStorage.getItem('receipt_type_configs');
         if (saved) setReceiptTypeConfigs(JSON.parse(saved));
+      } finally {
+        setIsLoadingReceiptTypes(false);
       }
     };
     loadReceiptTypes();
@@ -173,6 +178,7 @@ const App: React.FC = () => {
   // 3. Cargar configuración de cuentas desde Google Sheets
   const loadAccountsFromSheets = async (url = scriptUrl) => {
     if (!url) return;
+    setIsLoadingAccounts(true);
 
     try {
       const config = await fetchAccountsFromSheets(url);
@@ -197,6 +203,8 @@ const App: React.FC = () => {
       console.log(`Cuentas y convenios cargados desde Google Sheets: ${config.accounts.length} cuentas, ${config.convenios.length} convenios`);
     } catch (err: any) {
       console.error("Failed to load accounts from sheets", err);
+    } finally {
+      setIsLoadingAccounts(false);
     }
   };
 
@@ -1332,7 +1340,14 @@ const App: React.FC = () => {
             {activeTab === 'UPLOAD' && (
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Cargar Imágenes</h2>
-                <UploadZone onFileSelect={handleFileSelect} status={status} />
+                {/* Upload Zone */}
+                <div className="mb-8">
+                  <UploadZone
+                    onFileSelect={handleFileSelect}
+                    status={status}
+                    isSystemLoading={isLoadingHistory || isLoadingTraining || isLoadingAccounts || isLoadingReceiptTypes}
+                  />
+                </div>
                 {errorMsg && (
                   <div className="mt-4 p-3 bg-red-50 text-red-700 text-sm rounded-lg">
                     {errorMsg}
