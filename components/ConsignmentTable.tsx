@@ -9,11 +9,12 @@ interface ConsignmentTableProps {
   onAuthorize?: (id: string) => void; // Para autorización
   onVerifyNumbers?: (id: string) => void; // Para verificación de números
   onTrain?: (record: ConsignmentRecord) => void; // Para entrenamiento de IA
+  onReAnalyze?: (record: ConsignmentRecord) => void; // Para re-análisis de IA
   accounts?: ConfigItem[]; // Cuentas autorizadas para mostrar etiquetas
   convenios?: ConfigItem[]; // Convenios autorizados para mostrar etiquetas
 }
 
-export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onDelete, onViewImage, onAuthorize, onVerifyNumbers, onTrain, accounts = [], convenios = [] }) => {
+export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onDelete, onViewImage, onAuthorize, onVerifyNumbers, onTrain, onReAnalyze, accounts = [], convenios = [] }) => {
 
   // Helper: Buscar etiqueta de cuenta/convenio
   const getAccountLabel = (accountNumber: string | null | undefined): { number: string; label: string } | null => {
@@ -279,6 +280,16 @@ export const ConsignmentTable: React.FC<ConsignmentTableProps> = ({ records, onD
                       title="Entrenar la IA con este recibo"
                     >
                       🎓 Entrenar IA
+                    </button>
+                  )}
+                  {/* Botón de re-análisis */}
+                  {onReAnalyze && (
+                    <button
+                      onClick={() => onReAnalyze(record)}
+                      className="mt-1 w-full px-2 py-1 bg-indigo-500 text-white text-xs rounded hover:bg-indigo-600 transition-colors flex items-center justify-center gap-1"
+                      title="Volver a analizar con la configuración de IA actual"
+                    >
+                      🔄 Re-analizar
                     </button>
                   )}
                   {/* Mostrar si ya tiene autorización */}

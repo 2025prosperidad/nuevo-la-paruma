@@ -1292,6 +1292,109 @@ const App: React.FC = () => {
     return localRecords.find(r => r.id === recordToVerify);
   };
 
+  // 16. Re-analizar un registro existente
+  const handleReAnalyze = async (record: ConsignmentRecord) => {
+    if (status === ProcessingStatus.ANALYZING) return;
+
+    setStatus(ProcessingStatus.ANALYZING);
+    setErrorMsg(null);
+
+    try {
+      let base64Data = '';
+      let mimeType = 'image/jpeg';
+
+      // 1. Extraer datos base64 de la imagen
+      if (record.imageUrl.startsWith('data:image')) {
+        const match = record.imageUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (match) {
+          mimeType = match[1];
+          base64Data = match[2];
+        }
+      }
+
+      // 2. Si no es base64 (es URL de Drive), intentar descargarla
+      if (!base64Data && record.imageUrl.includes('drive.google.com')) {
+        try {
+          // Nota: Esto puede fallar por CORS dependiendo de la configuración del navegador/Google
+          const viewableUrl = record.imageUrl.includes('drive.google.com')
+            ? `https://drive.google.com/thumbnail?id=${record.imageUrl.match(/id=([^&]+)/)?.[1] || record.imageUrl.match(/\/file\/d\/([^\/]+)/)?.[1]}&sz=w1000`
+            : record.imageUrl;
+
+          const response = await fetch(viewableUrl);
+          const blob = await response.blob();
+          mimeType = blob.type;
+          base64Data = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64 = reader.result as string;
+              resolve(base64.split(',')[1]);
+            };
+            reader.readAsDataURL(blob);
+          });
+        } catch (fetchErr) {
+          console.error('Error al descargar imagen remota:', fetchErr);
+          throw new Error('No se pudo descargar la imagen remota para re-análisis. ¿Quizás es una imagen de historial antiguo?');
+        }
+      }
+
+      if (!base64Data) {
+        throw new Error('No se pudo extraer la imagen del registro.');
+      }
+
+      // 3. Generar hash (debería ser el mismo)
+      const imageHash = record.imageHash || await generateImageHash(base64Data);
+
+      // 4. Analizar FORZANDO bypass de caché
+      console.log(`🔄 Re-analizando con modelo: ${aiConfig.preferredModel} (Bypass Caché)`);
+
+      const analysisResult = await analyzeReceipt(
+        base64Data,
+        imageHash,
+        aiConfig.preferredModel as AIModel,
+        mimeType,
+        false, // useCache = false PARA FORZAR RE-ANÁLISIS
+        aiConfig.useTrainingExamples,
+        aiConfig.maxTrainingExamples
+      );
+
+      console.log(`✅ Re-análisis completado en ${analysisResult.analysisTime} ms`);
+
+      // 5. Validar nuevos resultados
+      const validation = validateRecord(
+        { ...analysisResult.data, imageHash },
+        localRecords.filter(r => r.id !== record.id),
+        allowedAccounts,
+        allowedConvenios
+      );
+
+      // 6. Actualizar el registro en el estado correspondiente
+      const updatedRecord: ConsignmentRecord = {
+        ...record,
+        ...analysisResult.data,
+        status: validation.status,
+        statusMessage: validation.message,
+        analyzedWith: analysisResult.model,
+        fromCache: false,
+        analysisTime: analysisResult.analysisTime
+      };
+
+      // Actualizar en localRecords si está allí
+      if (localRecords.some(r => r.id === record.id)) {
+        setLocalRecords(prev => prev.map(r => r.id === record.id ? updatedRecord : r));
+      }
+      // O en sheetRecords si está allí (historial)
+      else if (sheetRecords.some(r => r.id === record.id)) {
+        setSheetRecords(prev => prev.map(r => r.id === record.id ? updatedRecord : r));
+      }
+
+    } catch (err: any) {
+      console.error('Error en re-análisis:', err);
+      setErrorMsg(`Error en re-análisis: ${err.message || 'Error desconocido'}`);
+    } finally {
+      setStatus(ProcessingStatus.IDLE);
+    }
+  };
+
   // Determine what to show
   const displayedRecords = activeTab === 'UPLOAD' ? localRecords : sheetRecords;
 
@@ -1302,34 +1405,33 @@ const App: React.FC = () => {
         onSync={handleSync}
         isSyncing={isSyncing}
       />
-
       <main className="flex-grow max-w-[95%] w-full mx-auto px-4 py-8">
 
         <div className="flex border-b border-gray-200 mb-6">
           <button
             onClick={() => setActiveTab('UPLOAD')}
-            className={`px - 6 py - 3 font - medium text - sm transition - colors border - b - 2 ${activeTab === 'UPLOAD'
+            className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'UPLOAD'
               ? 'border-brand-600 text-brand-600'
               : 'border-transparent text-gray-500 hover:text-gray-700'
-              } `}
+              }`}
           >
             Validación en Curso (Nuevos)
           </button>
           <button
             onClick={() => setActiveTab('HISTORY')}
-            className={`px - 6 py - 3 font - medium text - sm transition - colors border - b - 2 ${activeTab === 'HISTORY'
+            className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'HISTORY'
               ? 'border-brand-600 text-brand-600'
               : 'border-transparent text-gray-500 hover:text-gray-700'
-              } `}
+              }`}
           >
             Historial Base de Datos {isLoadingHistory && '(Cargando...)'}
           </button>
           <button
             onClick={() => setActiveTab('TRAINING')}
-            className={`px - 6 py - 3 font - medium text - sm transition - colors border - b - 2 ${activeTab === 'TRAINING'
+            className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === 'TRAINING'
               ? 'border-brand-600 text-brand-600'
               : 'border-transparent text-gray-500 hover:text-gray-700'
-              } `}
+              }`}
           >
             🎓 Entrenamiento IA ({trainingRecords.length})
           </button>
@@ -1457,12 +1559,13 @@ const App: React.FC = () => {
                 </div>
 
                 <ConsignmentTable
-                  records={displayedRecords}
+                  records={activeTab === 'UPLOAD' ? localRecords : sheetRecords}
                   onDelete={activeTab === 'UPLOAD' ? handleDelete : () => { }}
                   onViewImage={(url) => setSelectedImage(url)}
                   onAuthorize={activeTab === 'UPLOAD' ? handleAuthorizeRequest : undefined}
                   onVerifyNumbers={activeTab === 'UPLOAD' ? handleVerifyRequest : undefined}
                   onTrain={activeTab === 'UPLOAD' ? handleTrainRecord : undefined}
+                  onReAnalyze={handleReAnalyze}
                   accounts={allowedAccounts}
                   convenios={allowedConvenios}
                 />
@@ -1470,7 +1573,7 @@ const App: React.FC = () => {
             )}
           </div>
         </div>
-      </main>
+      </main >
 
       <ImageModal
         isOpen={!!selectedImage}
@@ -1588,7 +1691,7 @@ const App: React.FC = () => {
           rawText: ''
         }}
       />
-    </div>
+    </div >
   );
 };
 
