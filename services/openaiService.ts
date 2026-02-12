@@ -101,9 +101,9 @@ CAMPOS A EXTRAER:
 
 16. **rawText** (string): TODO el texto visible en la imagen. INCLUIR al menos 500 caracteres. NUNCA truncar las líneas que contengan RECIBO, RRN, APRO, UPC, CONVENIO, REF, VALOR.
 
-17. **rrn** (string | null): Número RRN de recibos térmicos Redeban (ejemplo: "228331").
-18. **recibo** (string | null): Número de RECIBO de recibos térmicos Redeban (ejemplo: "224936").
-19. **apro** (string | null): Número APRO de recibos térmicos Redeban (ejemplo: "096133").
+17. **rrn** (string | null): Número RRN de recibos térmicos Redeban o Wompi. En Redeban son 6 dígitos (ej: "228331"). En Wompi pueden ser 12+ dígitos (ej: "804289283172"). Extraer el número COMPLETO.
+18. **recibo** (string | null): Número de RECIBO de recibos térmicos Redeban o Wompi (ejemplo: "224936", "283172").
+19. **apro** (string | null): Número APRO o Aprob de recibos térmicos. En Redeban aparece como "APRO:" (ej: "096133"). En Wompi aparece como "Aprob:" (ej: "747977"). Ambos son el mismo campo.
 
 IMPORTANTE:
 - Sé DETERMINISTA: la misma imagen debe dar siempre el mismo resultado.

@@ -136,7 +136,15 @@ const singleAnalysis = async (
 
   const prompt = `
     Analyze this image of a Colombian bank payment receipt (consignación or comprobante).
-    Types: Redeban (Thermal paper), Bancolombia App, Nequi (Purple screenshot), Banco Agrario, Davivienda.
+    Types: Redeban (Thermal paper), Wompi/Corresponsal Bancolombia, Bancolombia App, Nequi (Purple screenshot), Banco Agrario, Davivienda.
+    
+    ⚠️ WOMPI RECEIPTS (Corresponsal Bancolombia via Wompi):
+    - Header shows "Wompi" and "Corresponsal Bancolombia"
+    - Fields: Recibo, RRN (can be 12+ digits!), Aprob (same as APRO), C. Único, Ter
+    - Format: "Recibo:283172  Ter:4MMD4W9338" and "RRN:804289283172 Aprob:747977 C. Único:59839"
+    - The RRN in Wompi is LONGER than Redeban (12 digits vs 6). Extract the FULL number.
+    - "Aprob" = same as "APRO" in Redeban. Extract it as the apro field.
+    - Convenio and Referencia fields are on separate labeled lines.
 
 ${trainingContext || ''}
 

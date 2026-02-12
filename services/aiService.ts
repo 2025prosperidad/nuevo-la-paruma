@@ -80,10 +80,21 @@ function normalizeThermalCode(value?: string | null, standardLength: number = 6)
 function extractRedebanTriplet(rawText: string): { recibo?: string; rrn?: string; apro?: string } {
     const text = rawText || '';
 
-    // 1) Caso típico: los tres en la misma o en líneas contiguas.
-    //    Usamos [\s\S] para cruzar saltos de línea, gap amplio (80 chars).
+    // Rangos de dígitos:
+    //   Recibo: 4-8 dígitos (Redeban: 6, Wompi: 6)
+    //   RRN: 4-15 dígitos (Redeban: 6, Wompi: 12 ej "804289283172")
+    //   APRO/Aprob: 4-8 dígitos
+    const D_RECIBO = '[0-9]{4,8}';
+    const D_RRN = '[0-9]{4,15}';
+    const D_APRO = '[0-9]{4,8}';
+    const LBL_RECIBO = 'recib[o0]';
+    const LBL_RRN = '(?:rrn|rnn|ran|rn)';
+    const LBL_APRO = '(?:apro|apr0|aprc|aprob|aprobacion)';
+
+    // 1) Caso típico: los tres en la misma o líneas contiguas.
+    //    [\s\S] cruza saltos de línea, gap amplio (100 chars).
     const lineMatch = text.match(
-        /recib[o0]\s*[:\-]?\s*([0-9]{5,8})[\s\S]{0,80}?(?:rrn|rnn|ran|rn)\s*[:\-]?\s*([0-9]{5,8})[\s\S]{0,80}?(?:apro|apr0|aprc|apr|aprob)\s*[:\-]?\s*([0-9]{5,8})/i
+        new RegExp(`${LBL_RECIBO}\\s*[:\\-]?\\s*(${D_RECIBO})[\\s\\S]{0,100}?${LBL_RRN}\\s*[:\\-]?\\s*(${D_RRN})[\\s\\S]{0,100}?${LBL_APRO}\\s*[:\\-]?\\s*(${D_APRO})`, 'i')
     );
     if (lineMatch) {
         return {
@@ -94,7 +105,6 @@ function extractRedebanTriplet(rawText: string): { recibo?: string; rrn?: string
     }
 
     // 2) Búsqueda individual con múltiples patrones y tolerancia OCR.
-    //    Usamos varios patrones de mayor a menor especificidad.
     const findField = (patterns: RegExp[]): string | undefined => {
         for (const pat of patterns) {
             const m = text.match(pat);
@@ -104,23 +114,23 @@ function extractRedebanTriplet(rawText: string): { recibo?: string; rrn?: string
     };
 
     const recibo = findField([
-        /recib[o0]\s*[:\-]\s*([0-9]{4,8})/i,
-        /(?:^|\n)\s*recib[o0]\s*[:\-]?\s*([0-9]{4,8})/im,
-        /\brecib[o0][^A-Z0-9]{0,8}([0-9]{4,8})/i,
+        new RegExp(`${LBL_RECIBO}\\s*[:\\-]\\s*(${D_RECIBO})`, 'i'),
+        new RegExp(`(?:^|\\n)\\s*${LBL_RECIBO}\\s*[:\\-]?\\s*(${D_RECIBO})`, 'im'),
+        new RegExp(`\\b${LBL_RECIBO}[^A-Z0-9]{0,8}(${D_RECIBO})`, 'i'),
     ]);
 
     const rrn = findField([
-        /(?:rrn|rnn|ran)\s*[:\-]\s*([0-9]{4,8})/i,
-        /(?:^|\n)\s*(?:rrn|rnn|ran)\s*[:\-]?\s*([0-9]{4,8})/im,
-        /\b(?:rrn|rnn)[^A-Z0-9]{0,8}([0-9]{4,8})/i,
+        new RegExp(`${LBL_RRN}\\s*[:\\-]\\s*(${D_RRN})`, 'i'),
+        new RegExp(`(?:^|\\n)\\s*${LBL_RRN}\\s*[:\\-]?\\s*(${D_RRN})`, 'im'),
+        new RegExp(`\\b${LBL_RRN}[^A-Z0-9]{0,8}(${D_RRN})`, 'i'),
     ]);
 
     const apro = findField([
-        /(?:apro|apr0|aprc|aprob|aprobacion)\s*[:\-]\s*([0-9]{4,8})/i,
-        /(?:^|\n)\s*(?:apro|apr0|aprc|aprob)\s*[:\-]?\s*([0-9]{4,8})/im,
-        /\b(?:apro|apr0|aprob)[^A-Z0-9]{0,8}([0-9]{4,8})/i,
-        // A veces el OCR devuelve "APRO" pegado al número anterior: "228331APRO096133"
-        /(?:rrn|rnn)\s*[:\-]?\s*[0-9]{4,8}\s*(?:apro|apr0|aprob)\s*[:\-]?\s*([0-9]{4,8})/i,
+        new RegExp(`${LBL_APRO}\\s*[:\\-]\\s*(${D_APRO})`, 'i'),
+        new RegExp(`(?:^|\\n)\\s*${LBL_APRO}\\s*[:\\-]?\\s*(${D_APRO})`, 'im'),
+        new RegExp(`\\b${LBL_APRO}[^A-Z0-9]{0,8}(${D_APRO})`, 'i'),
+        // Buscar APRO/Aprob cerca de RRN en la misma región
+        new RegExp(`${LBL_RRN}\\s*[:\\-]?\\s*${D_RRN}\\s*${LBL_APRO}\\s*[:\\-]?\\s*(${D_APRO})`, 'i'),
     ]);
 
     return { recibo: recibo || undefined, rrn: rrn || undefined, apro: apro || undefined };
@@ -225,13 +235,17 @@ function normalizeRedebanLikeReceipt(data: ExtractedData): ExtractedData {
     const triplet = extractRedebanTriplet(text);
 
     // Prioridad: 1) tripleta del rawText, 2) campo directo de IA, 3) regex adicionales
-    const rrn = normalizeThermalCode(
+    // RRN puede ser 4-15 dígitos (Wompi usa RRN largo: ej 804289283172)
+    const isWompi = lower.includes('wompi');
+    const rawRrn =
         triplet.rrn ||
         data.rrn ||
-        text.match(/(?:rrn|rnn|ran)\s*[:\-]\s*([0-9]{4,8})/i)?.[1] ||
-        text.match(/\b(?:rrn|rnn)[^A-Z0-9]{0,8}([0-9]{4,8})/i)?.[1],
-        6
-    );
+        text.match(/(?:rrn|rnn|ran)\s*[:\-]\s*([0-9]{4,15})/i)?.[1] ||
+        text.match(/\b(?:rrn|rnn)[^A-Z0-9]{0,8}([0-9]{4,15})/i)?.[1];
+    // Para Wompi el RRN es largo (12 dígitos), no normalizar a 6.
+    // Para Redeban estándar normalizar a 6.
+    const rrnLength = rawRrn && rawRrn.length > 8 ? rawRrn.length : 6;
+    const rrn = normalizeThermalCode(rawRrn, rrnLength);
     const recibo = normalizeThermalCode(
         triplet.recibo ||
         data.recibo ||
@@ -244,8 +258,8 @@ function normalizeRedebanLikeReceipt(data: ExtractedData): ExtractedData {
         data.apro ||
         text.match(/(?:apro|apr0|aprc|aprob|aprobacion)\s*[:\-]\s*([0-9]{4,8})/i)?.[1] ||
         text.match(/\b(?:apro|apr0|aprob)[^A-Z0-9]{0,8}([0-9]{4,8})/i)?.[1] ||
-        // Último recurso: buscar 6 dígitos después de "RRN: XXXXXX" en la misma región
-        text.match(/(?:rrn|rnn)\s*[:\-]?\s*[0-9]{4,8}[\s\S]{0,40}?(?:apro|apr0|aprob)\s*[:\-]?\s*([0-9]{4,8})/i)?.[1],
+        // Último recurso: buscar APRO/Aprob cerca de RRN en la misma región (RRN puede ser largo en Wompi)
+        text.match(/(?:rrn|rnn)\s*[:\-]?\s*[0-9]{4,15}[\s\S]{0,60}?(?:apro|apr0|aprob)\s*[:\-]?\s*([0-9]{4,8})/i)?.[1],
         6
     );
     const convenio = normalizeDigits(text.match(/convenio\s*[:\-]?\s*([0-9]+)/i)?.[1] || data.accountOrConvenio);
