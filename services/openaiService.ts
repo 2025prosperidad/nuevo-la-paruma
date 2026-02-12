@@ -94,7 +94,7 @@ CAMPOS A EXTRAER (devuelve JSON):
 - isScreenshot (boolean): true si es captura de app
 - hasPhysicalReceipt (boolean): true si tiene RRN/RECIBO/APRO
 - isReadable (boolean): true si es legible
-- rawText (string): TODO el texto visible, mínimo 500 caracteres, NUNCA truncar
+- rawText (string): Texto clave del recibo (líneas con RECIBO, RRN, APRO, CONVENIO, VALOR, REF)
 - hasAmbiguousNumbers (boolean): true si algún número es dudoso
 - ambiguousFields (string[]): Campos con números dudosos
 
@@ -139,7 +139,7 @@ export async function analyzeWithGPT4(
                     }
                 ],
                 temperature: 0, // DETERMINISTA
-                max_tokens: 1200,
+                max_tokens: 2500,
                 response_format: { type: 'json_object' }
             });
             break;
@@ -160,7 +160,30 @@ export async function analyzeWithGPT4(
             throw new Error('No se recibió respuesta de GPT-4o-mini');
         }
 
-        const parsed = JSON.parse(content);
+        // Intentar parsear JSON; si está truncado, intentar repararlo
+        let parsed: any;
+        try {
+            parsed = JSON.parse(content);
+        } catch (jsonErr) {
+            // JSON truncado por max_tokens — intentar reparar
+            let fixed = content.trim();
+            // Si rawText está abierto y no cerrado, cerrarlo
+            fixed = fixed.replace(/("rawText"\s*:\s*"[^"]*?)$/, '$1"');
+            // Si ambiguousFields está abierto, cerrarlo
+            fixed = fixed.replace(/(\[[^\]]*?)$/, '$1]');
+            // Cerrar llaves/corchetes pendientes
+            const opens = (fixed.match(/{/g) || []).length;
+            const closes = (fixed.match(/}/g) || []).length;
+            for (let i = 0; i < opens - closes; i++) fixed += '}';
+            // Remover coma trailing antes de }
+            fixed = fixed.replace(/,\s*}/g, '}');
+            try {
+                parsed = JSON.parse(fixed);
+                console.warn('⚠️ JSON de GPT truncado — reparado automáticamente');
+            } catch {
+                throw new Error(`GPT-4o-mini falló: ${(jsonErr as Error).message}`);
+            }
+        }
 
         // Normalizar y validar datos
         const extractedData: ExtractedData = {
