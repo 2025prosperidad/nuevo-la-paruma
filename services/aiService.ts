@@ -77,6 +77,29 @@ function normalizeThermalCode(value?: string | null, standardLength: number = 6)
     return code;
 }
 
+function extractRedebanTriplet(rawText: string): { recibo?: string; rrn?: string; apro?: string } {
+    const text = rawText || '';
+
+    // 1) Caso típico en una sola línea: "RECIBO: 224936   RRN: 228331   APRO: 096133"
+    const lineMatch = text.match(
+        /recib[o0]\s*[:\-]?\s*([0-9]{5,8}).{0,32}?(?:rrn|rnn|ran|rn)\s*[:\-]?\s*([0-9]{5,8}).{0,32}?(?:apro|apr0|aprc|apr)\s*[:\-]?\s*([0-9]{5,8})/i
+    );
+    if (lineMatch) {
+        return {
+            recibo: lineMatch[1],
+            rrn: lineMatch[2],
+            apro: lineMatch[3]
+        };
+    }
+
+    // 2) Búsqueda individual con tolerancia OCR
+    const recibo = text.match(/(?:^|\n|\s)recib[o0]\s*[:\-]?\s*([0-9]{5,8})(?:\s|$)/im)?.[1];
+    const rrn = text.match(/(?:^|\n|\s)(?:rrn|rnn|ran|rn)\s*[:\-]?\s*([0-9]{5,8})(?:\s|$)/im)?.[1];
+    const apro = text.match(/(?:^|\n|\s)(?:apro|apr0|aprc|apr)\s*[:\-]?\s*([0-9]{5,8})(?:\s|$)/im)?.[1];
+
+    return { recibo: recibo || undefined, rrn: rrn || undefined, apro: apro || undefined };
+}
+
 function parseSpanishDateTimeFromRawText(rawText: string): { date?: string; time?: string } {
     const monthMap: Record<string, string> = {
         ENE: '01',
@@ -173,19 +196,24 @@ function normalizeRedebanLikeReceipt(data: ExtractedData): ExtractedData {
     const isRedebanLike = lower.includes('redeban') || lower.includes('corresponsal') || lower.includes('wompi');
     if (!isRedebanLike) return data;
 
+    const triplet = extractRedebanTriplet(text);
+
     const rrn = normalizeThermalCode(
+        triplet.rrn ||
         text.match(/(?:^|\n)\s*rrn\s*[:\-]?\s*([A-Z0-9]{4,})/im)?.[1] ||
         text.match(/\brrn[^A-Z0-9]{0,8}([A-Z0-9]{4,})/i)?.[1] ||
         data.rrn,
         6
     );
     const recibo = normalizeThermalCode(
+        triplet.recibo ||
         text.match(/(?:^|\n)\s*recib(?:o)?\s*[:\-]?\s*([A-Z0-9]{4,})/im)?.[1] ||
         text.match(/\brecib(?:o)?[^A-Z0-9]{0,8}([A-Z0-9]{4,})/i)?.[1] ||
         data.recibo,
         6
     );
     const apro = normalizeThermalCode(
+        triplet.apro ||
         text.match(/(?:^|\n)\s*apro(?:b)?\s*[:\-]?\s*([A-Z0-9]{4,})/im)?.[1] ||
         text.match(/\bapro(?:b)?[^A-Z0-9]{0,8}([A-Z0-9]{4,})/i)?.[1] ||
         data.apro,
