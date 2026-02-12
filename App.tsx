@@ -943,7 +943,7 @@ const App: React.FC = () => {
           }
 
           const base64Data = compressionResult.data!;
-          const base64String = `data: ${compressionResult.mimeType}; base64, ${base64Data} `;
+          const base64String = `data:${compressionResult.mimeType};base64,${base64Data}`;
 
           // 2. Generar hash de la imagen para detectar duplicados exactos
           const imageHash = await generateImageHash(base64Data);
@@ -1305,10 +1305,19 @@ const App: React.FC = () => {
 
       // 1. Extraer datos base64 de la imagen
       if (record.imageUrl.startsWith('data:image')) {
-        const match = record.imageUrl.match(/^data:([^;]+);base64,(.+)$/);
+        // Regex más flexible que permite espacios opcionales
+        const match = record.imageUrl.match(/^data:([^;]+);base64,(.+)$/) ||
+          record.imageUrl.match(/^data:\s*([^;]+)\s*;\s*base64\s*,\s*(.+)\s*$/);
+
         if (match) {
-          mimeType = match[1];
-          base64Data = match[2];
+          mimeType = match[1].trim();
+          base64Data = match[2].trim();
+        } else {
+          // Intento final por split si el regex falla
+          const parts = record.imageUrl.split('base64,');
+          if (parts.length === 2) {
+            base64Data = parts[1].trim();
+          }
         }
       }
 
