@@ -409,7 +409,15 @@ function normalizeIdValue(value) {
 function getHeaderIndexMap(headers) {
   const map = {};
   for (let i = 0; i < headers.length; i++) {
-    map[String(headers[i]).trim()] = i;
+    const key = String(headers[i]).trim();
+    map[key] = i;
+    // Alias sin tildes/variantes para robustez entre hojas antiguas
+    map[key
+      .replace(/[áàä]/gi, 'a')
+      .replace(/[éèë]/gi, 'e')
+      .replace(/[íìï]/gi, 'i')
+      .replace(/[óòö]/gi, 'o')
+      .replace(/[úùü]/gi, 'u')] = i;
   }
   return map;
 }
@@ -427,14 +435,14 @@ function buildConsignmentIndexes(sheet) {
   const idx = getHeaderIndexMap(headers);
   const rows = data.slice(1);
 
-  const hashIdx = idx['Hash Imagen'];
+  const hashIdx = idx['Hash Imagen'] !== undefined ? idx['Hash Imagen'] : idx['Hash Imagen'.replace(/[áàäéèëíìïóòöúùü]/gi, '')];
   const rrnIdx = idx['RRN'];
   const reciboIdx = idx['RECIBO'];
   const aproIdx = idx['APRO'];
   const operacionIdx = idx['OPERACION'];
   const comprobanteIdx = idx['COMPROBANTE'];
-  const numRefIdx = idx['Número Referencia'];
-  const numOpIdx = idx['Número Operación'];
+  const numRefIdx = idx['Número Referencia'] !== undefined ? idx['Número Referencia'] : idx['Numero Referencia'];
+  const numOpIdx = idx['Número Operación'] !== undefined ? idx['Número Operación'] : idx['Numero Operacion'];
 
   rows.forEach(row => {
     if (hashIdx !== undefined) {

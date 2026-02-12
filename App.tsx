@@ -164,8 +164,8 @@ const App: React.FC = () => {
     setIsLoadingHistory(true);
     setHistoryError(null);
     try {
-      // By default fetch accepted records to show in history
-      const history = await fetchHistoryFromSheets(url, { limit: 100 });
+      // Cargar un historial más amplio para mejorar detección de duplicados
+      const history = await fetchHistoryFromSheets(url, { limit: 2000 });
       setSheetRecords(history);
     } catch (err: any) {
       console.error("Failed to load history", err);
@@ -526,6 +526,29 @@ const App: React.FC = () => {
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  // Normalización consistente para comparar IDs entre frontend y Google Sheets
+  const normalizeComparableId = (value?: string | null): string => {
+    if (!value) return '';
+    return String(value).trim().toUpperCase();
+  };
+
+  const normalizeComparableDigits = (value?: string | null): string => {
+    return normalizeComparableId(value).replace(/\D/g, '');
+  };
+
+  const getRecordComparableIds = (record: Partial<ConsignmentRecord>) => {
+    return [
+      record.rrn,
+      record.recibo,
+      record.apro,
+      record.operacion,
+      record.comprobante,
+      record.uniqueTransactionId
+    ]
+      .map(v => normalizeComparableId(v as string | null | undefined))
+      .filter(Boolean);
   };
 
   // Persist Config changes
@@ -1140,8 +1163,64 @@ const App: React.FC = () => {
     }
 
     setIsSyncing(true);
-    const result = await sendToGoogleSheets(validRecords, scriptUrl);
-    setIsSyncing(false);
+    let result: { success: boolean; message: string };
+    try {
+      // Revalidación previa a sync contra historial más reciente de la base
+      const latestSheetRecords = await fetchHistoryFromSheets(scriptUrl, { limit: 3000 });
+      const comparisonBase = [...latestSheetRecords];
+      const recordsToSync: ConsignmentRecord[] = [];
+      let skippedAsDuplicate = 0;
+
+      for (const record of validRecords) {
+        const newHash = normalizeComparableId(record.imageHash);
+        const newIds = getRecordComparableIds(record);
+        const newDigitIds = newIds.map(v => normalizeComparableDigits(v));
+
+        const duplicateFound = comparisonBase.find(existing => {
+          const existingHash = normalizeComparableId(existing.imageHash);
+          if (newHash && existingHash && newHash === existingHash) return true;
+
+          const existingIds = getRecordComparableIds(existing);
+          if (existingIds.length === 0 || newIds.length === 0) return false;
+
+          // Match exacto y numérico para robustez OCR
+          return existingIds.some(existingId => {
+            if (newIds.includes(existingId)) return true;
+            const existingDigits = normalizeComparableDigits(existingId);
+            return existingDigits.length >= 4 && newDigitIds.includes(existingDigits);
+          });
+        });
+
+        if (duplicateFound) {
+          skippedAsDuplicate++;
+          continue;
+        }
+
+        recordsToSync.push(record);
+        comparisonBase.push(record);
+      }
+
+      if (recordsToSync.length === 0) {
+        result = {
+          success: false,
+          message: `No hay registros nuevos para sincronizar. Se detectaron ${skippedAsDuplicate} duplicados contra la base de datos.`
+        };
+      } else {
+        result = await sendToGoogleSheets(recordsToSync, scriptUrl);
+        if (result.success && skippedAsDuplicate > 0) {
+          result.message = `${result.message}\n\n⚠️ Se omitieron ${skippedAsDuplicate} registros duplicados antes de sincronizar.`;
+        }
+      }
+    } catch (syncValidationError: any) {
+      // Si falla la pre-validación, no bloqueamos sincronización, pero avisamos.
+      console.warn('No se pudo validar duplicados contra historial antes de sincronizar:', syncValidationError);
+      result = await sendToGoogleSheets(validRecords, scriptUrl);
+      if (result.success) {
+        result.message = `${result.message}\n\n⚠️ No se pudo validar duplicados contra historial en esta sincronización.`;
+      }
+    } finally {
+      setIsSyncing(false);
+    }
 
     alert(result.message);
 
@@ -1520,7 +1599,7 @@ const App: React.FC = () => {
                   Actualizar Datos
                 </button>
                 <div className="text-xs text-gray-500">
-                  Mostrando las últimas 100 consignaciones aceptadas.
+                  Mostrando hasta 2000 consignaciones para control de duplicados.
                 </div>
               </div>
             )}
