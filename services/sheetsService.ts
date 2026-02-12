@@ -28,6 +28,11 @@ export const sendToGoogleSheets = async (
   }
 
   try {
+    const asText = (value: unknown): string => {
+      if (value === null || value === undefined) return '';
+      return String(value).trim();
+    };
+
     const payload = records.map(r => {
       // Infer "Tipo Pago" based on logic
       const isConvenio = r.accountOrConvenio && r.accountOrConvenio.length < 9; 
@@ -42,8 +47,8 @@ export const sendToGoogleSheets = async (
         valor: r.amount || 0,
         fechaTransaccion: r.date || '',
         hora: r.time || '',
-        numeroReferencia: r.uniqueTransactionId || r.paymentReference || '',
-        cuentaDestino: r.accountOrConvenio || '',
+        numeroReferencia: asText(r.uniqueTransactionId || r.paymentReference),
+        cuentaDestino: asText(r.accountOrConvenio),
         titularCuentaDestino: 'Distribuidora La Paruma SAS',
         ciudad: '', // Optional
         
@@ -51,12 +56,12 @@ export const sendToGoogleSheets = async (
         imageBase64: r.imageUrl || '',
         
         // NUEVOS CAMPOS: Números únicos de transacción
-        rrn: r.rrn || '',
-        recibo: r.recibo || '',
-        apro: r.apro || '',
-        operacion: r.operacion || '',
-        comprobante: r.comprobante || '',
-        imageHash: r.imageHash || '',
+        rrn: asText(r.rrn),
+        recibo: asText(r.recibo),
+        apro: asText(r.apro),
+        operacion: asText(r.operacion),
+        comprobante: asText(r.comprobante),
+        imageHash: asText(r.imageHash),
         
         // Extra fields for context if the script supports them (legacy support)
         fechaProcesamiento: new Date().toLocaleString('es-CO'),
@@ -65,8 +70,8 @@ export const sendToGoogleSheets = async (
         cuentaOrigen: '', 
         nombreConsignante: '', 
         descripcion: r.rawText ? r.rawText.substring(0, 100) + '...' : '',
-        numeroOperacion: r.operacion || r.uniqueTransactionId || '',
-        convenio: isConvenio ? r.accountOrConvenio : '',
+        numeroOperacion: asText(r.operacion || r.uniqueTransactionId),
+        convenio: isConvenio ? asText(r.accountOrConvenio) : '',
         sucursal: '',
         cajero: ''
       };

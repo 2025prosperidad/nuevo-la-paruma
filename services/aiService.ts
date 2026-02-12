@@ -67,6 +67,16 @@ function normalizeDigits(value?: string | null): string {
     return String(value).trim().replace(/\s+/g, '');
 }
 
+function normalizeThermalCode(value?: string | null, standardLength: number = 6): string {
+    const code = normalizeDigits(value).toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!code) return '';
+    // Si OCR omitió solo un cero inicial, recuperarlo para códigos numéricos estándar.
+    if (/^\d+$/.test(code) && code.length === standardLength - 1) {
+        return code.padStart(standardLength, '0');
+    }
+    return code;
+}
+
 function parseSpanishDateTimeFromRawText(rawText: string): { date?: string; time?: string } {
     const monthMap: Record<string, string> = {
         ENE: '01',
@@ -163,20 +173,23 @@ function normalizeRedebanLikeReceipt(data: ExtractedData): ExtractedData {
     const isRedebanLike = lower.includes('redeban') || lower.includes('corresponsal') || lower.includes('wompi');
     if (!isRedebanLike) return data;
 
-    const rrn = normalizeDigits(
+    const rrn = normalizeThermalCode(
         text.match(/(?:^|\n)\s*rrn\s*[:\-]?\s*([A-Z0-9]{4,})/im)?.[1] ||
         text.match(/\brrn[^A-Z0-9]{0,8}([A-Z0-9]{4,})/i)?.[1] ||
-        data.rrn
+        data.rrn,
+        6
     );
-    const recibo = normalizeDigits(
+    const recibo = normalizeThermalCode(
         text.match(/(?:^|\n)\s*recib(?:o)?\s*[:\-]?\s*([A-Z0-9]{4,})/im)?.[1] ||
         text.match(/\brecib(?:o)?[^A-Z0-9]{0,8}([A-Z0-9]{4,})/i)?.[1] ||
-        data.recibo
+        data.recibo,
+        6
     );
-    const apro = normalizeDigits(
+    const apro = normalizeThermalCode(
         text.match(/(?:^|\n)\s*apro(?:b)?\s*[:\-]?\s*([A-Z0-9]{4,})/im)?.[1] ||
         text.match(/\bapro(?:b)?[^A-Z0-9]{0,8}([A-Z0-9]{4,})/i)?.[1] ||
-        data.apro
+        data.apro,
+        6
     );
     const convenio = normalizeDigits(text.match(/convenio\s*[:\-]?\s*([0-9]+)/i)?.[1] || data.accountOrConvenio);
     const ref = normalizeDigits(text.match(/ref(?:erencia)?\s*[:\-]?\s*([A-Z0-9]+)/i)?.[1] || data.paymentReference);

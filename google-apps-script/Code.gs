@@ -344,23 +344,23 @@ function doPost(e) {
           r.valor || 0,
           r.fechaTransaccion || '',
           r.hora || '',
-          r.numeroReferencia || '',
-          r.cuentaDestino || '',
+          preserveAsText(r.numeroReferencia),
+          preserveAsText(r.cuentaDestino),
           r.titularCuentaDestino || '',
           r.ciudad || '',
           r.motivoRechazo || '',
           imageUrl,  // NUEVO: URL de la imagen
-          r.rrn || '',  // Número único RRN (Redeban)
-          r.recibo || '',  // Número de recibo
-          r.apro || '',  // Código de aprobación
-          r.operacion || '',  // Número de operación
-          r.comprobante || '',  // Número de comprobante
-          r.imageHash || '',  // Hash SHA-256 de la imagen
+          preserveAsText(r.rrn),  // Número único RRN (Redeban)
+          preserveAsText(r.recibo),  // Número de recibo
+          preserveAsText(r.apro),  // Código de aprobación
+          preserveAsText(r.operacion),  // Número de operación
+          preserveAsText(r.comprobante),  // Número de comprobante
+          preserveAsText(r.imageHash),  // Hash SHA-256 de la imagen
           r.cuentaOrigen || '',
           r.nombreConsignante || '',
           r.descripcion || '',
-          r.numeroOperacion || '',
-          r.convenio || '',
+          preserveAsText(r.numeroOperacion),
+          preserveAsText(r.convenio),
           r.sucursal || '',
           r.cajero || ''
         ];
@@ -404,6 +404,13 @@ function doPost(e) {
 function normalizeIdValue(value) {
   if (value === null || value === undefined) return '';
   return String(value).trim().toUpperCase();
+}
+
+function preserveAsText(value) {
+  if (value === null || value === undefined) return '';
+  const v = String(value).trim();
+  if (!v) return '';
+  return "'" + v;
 }
 
 function getHeaderIndexMap(headers) {
