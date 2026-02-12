@@ -298,12 +298,22 @@ function doPost(e) {
     // Procesar uno o varios registros
     const rows = Array.isArray(payload) ? payload : [payload];
     const addedRecords = [];
+    let skippedDuplicates = 0;
+    const existingIndexes = buildConsignmentIndexes(sheet);
     
     rows.forEach((r, index) => {
       try {
         // Validar campos requeridos
         if (!r.banco) {
           throw new Error('El campo "banco" es obligatorio');
+        }
+
+        // Detección de duplicados en backend (defensa final)
+        const candidateIds = collectCandidateIdsFromPayload(r);
+        if (isPayloadDuplicate(r, candidateIds, existingIndexes)) {
+          skippedDuplicates++;
+          Logger.log(`⚠️ Registro duplicado omitido en backend (index ${index})`);
+          return;
         }
         
         // NUEVO: Procesar imagen si existe (solo si está habilitado)
@@ -356,6 +366,9 @@ function doPost(e) {
         ];
         
         sheet.appendRow(rowData);
+
+        // Registrar inmediatamente en índices para evitar duplicados dentro del mismo batch
+        registerPayloadInIndex(r, candidateIds, existingIndexes);
         
         addedRecords.push({
           fechaProcesamiento: fechaProcesamiento,
@@ -372,8 +385,9 @@ function doPost(e) {
 
     return ContentService.createTextOutput(JSON.stringify({
       status: 'success',
-      count: rows.length,
-      message: `${rows.length} registro(s) agregado(s) exitosamente`,
+      count: addedRecords.length,
+      skippedDuplicates: skippedDuplicates,
+      message: `${addedRecords.length} registro(s) agregado(s) exitosamente${skippedDuplicates > 0 ? `, ${skippedDuplicates} duplicado(s) omitido(s)` : ''}`,
       data: addedRecords
     })).setMimeType(ContentService.MimeType.JSON);
       
@@ -385,6 +399,95 @@ function doPost(e) {
       stack: error.stack || ''
     })).setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+function normalizeIdValue(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim().toUpperCase();
+}
+
+function getHeaderIndexMap(headers) {
+  const map = {};
+  for (let i = 0; i < headers.length; i++) {
+    map[String(headers[i]).trim()] = i;
+  }
+  return map;
+}
+
+function buildConsignmentIndexes(sheet) {
+  const data = sheet.getDataRange().getValues();
+  const hashSet = new Set();
+  const idSet = new Set();
+
+  if (data.length <= 1) {
+    return { hashSet: hashSet, idSet: idSet };
+  }
+
+  const headers = data[0];
+  const idx = getHeaderIndexMap(headers);
+  const rows = data.slice(1);
+
+  const hashIdx = idx['Hash Imagen'];
+  const rrnIdx = idx['RRN'];
+  const reciboIdx = idx['RECIBO'];
+  const aproIdx = idx['APRO'];
+  const operacionIdx = idx['OPERACION'];
+  const comprobanteIdx = idx['COMPROBANTE'];
+  const numRefIdx = idx['Número Referencia'];
+  const numOpIdx = idx['Número Operación'];
+
+  rows.forEach(row => {
+    if (hashIdx !== undefined) {
+      const h = normalizeIdValue(row[hashIdx]);
+      if (h) hashSet.add(h);
+    }
+
+    [rrnIdx, reciboIdx, aproIdx, operacionIdx, comprobanteIdx, numRefIdx, numOpIdx].forEach(colIdx => {
+      if (colIdx === undefined) return;
+      const v = normalizeIdValue(row[colIdx]);
+      if (v) idSet.add(v);
+    });
+  });
+
+  return { hashSet: hashSet, idSet: idSet };
+}
+
+function collectCandidateIdsFromPayload(r) {
+  const values = [
+    r.rrn,
+    r.recibo,
+    r.apro,
+    r.operacion,
+    r.comprobante,
+    r.numeroReferencia,
+    r.numeroOperacion
+  ];
+
+  const ids = [];
+  values.forEach(v => {
+    const n = normalizeIdValue(v);
+    if (n) ids.push(n);
+  });
+  return ids;
+}
+
+function isPayloadDuplicate(r, candidateIds, indexes) {
+  const hash = normalizeIdValue(r.imageHash);
+  if (hash && indexes.hashSet.has(hash)) return true;
+
+  for (let i = 0; i < candidateIds.length; i++) {
+    if (indexes.idSet.has(candidateIds[i])) return true;
+  }
+  return false;
+}
+
+function registerPayloadInIndex(r, candidateIds, indexes) {
+  const hash = normalizeIdValue(r.imageHash);
+  if (hash) indexes.hashSet.add(hash);
+
+  candidateIds.forEach(id => {
+    if (id) indexes.idSet.add(id);
+  });
 }
 
 // ===========================================

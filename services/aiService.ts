@@ -2,11 +2,155 @@ import { ExtractedData, AnalysisResult, AIModel, TrainingRecord } from '../types
 import { analyzeConsignmentImage as analyzeWithGemini } from './geminiService';
 import { analyzeWithGPT4 } from './openaiService';
 import { getCachedAnalysis, setCachedAnalysis } from './cacheService';
+import { CERVECERIA_UNION_CLIENT_CODE, CERVECERIA_UNION_INTERNAL_REFS } from '../constants';
 
 /**
  * Servicio orquestador de IA que maneja múltiples modelos
  * y caché de resultados
  */
+
+/**
+ * Reglas determinísticas para recibos "SU RED / MATRIX GIROS / BBVA".
+ * Evita que el modelo confunda "Punto" con el identificador único real (UPC).
+ */
+function normalizeSuredBbvaReceipt(data: ExtractedData): ExtractedData {
+    const text = data.rawText || '';
+    const isSuredBbva =
+        /su\s*red/i.test(text) &&
+        /matrix\s+giros/i.test(text) &&
+        /bbva/i.test(text);
+
+    if (!isSuredBbva) return data;
+
+    const upcMatch = text.match(/(?:^|\n)\s*upc\s*[:\-]?\s*([A-Z0-9]+)/im);
+    const puntoMatch = text.match(/(?:^|\n)\s*punto\s*[:\-]?\s*([A-Z0-9]+)/im);
+    const cuentaMatch = text.match(/(?:^|\n)\s*cuenta\s*[:\-]?\s*([Xx\*\d]+)/im);
+
+    const upc = upcMatch?.[1]?.trim() || '';
+    const punto = puntoMatch?.[1]?.trim() || '';
+    const cuenta = cuentaMatch?.[1]?.trim() || '';
+
+    if (!upc) return data;
+
+    const normalized: ExtractedData = {
+        ...data,
+        bankName: 'BBVA',
+        // Regla crítica: en este formato el identificador único es UPC, no Punto.
+        uniqueTransactionId: upc,
+        comprobante: upc,
+        operacion: upc,
+        accountOrConvenio: cuenta || data.accountOrConvenio,
+        isScreenshot: false,
+    };
+
+    // Si el modelo puso "Punto" en otros campos, lo sobreescribimos por UPC.
+    if (punto) {
+        if (normalized.paymentReference && String(normalized.paymentReference).trim() === punto) {
+            normalized.paymentReference = upc;
+        }
+        if (normalized.rrn && String(normalized.rrn).trim() === punto) {
+            normalized.rrn = null;
+        }
+        if (normalized.recibo && String(normalized.recibo).trim() === punto) {
+            normalized.recibo = null;
+        }
+        if (normalized.apro && String(normalized.apro).trim() === punto) {
+            normalized.apro = null;
+        }
+    }
+
+    return normalized;
+}
+
+function normalizeDigits(value?: string | null): string {
+    if (!value) return '';
+    return String(value).trim().replace(/\s+/g, '');
+}
+
+function applyCerveceriaReferenceRule(data: ExtractedData): ExtractedData {
+    const text = (data.rawText || '').toLowerCase();
+    const convenio = normalizeDigits(data.accountOrConvenio);
+    const ref = normalizeDigits(data.paymentReference);
+    const isCerveceria =
+        text.includes('cerveceria union') ||
+        text.includes('cervecería unión') ||
+        text.includes('cervunion') ||
+        convenio === '32137' ||
+        convenio === '56885' ||
+        convenio === '1709' ||
+        convenio === '18129';
+
+    if (!isCerveceria) return data;
+
+    const hasInternalRef = CERVECERIA_UNION_INTERNAL_REFS.some(internal =>
+        ref.includes(internal) || text.includes(internal)
+    );
+
+    return {
+        ...data,
+        clientCode: CERVECERIA_UNION_CLIENT_CODE,
+        paymentReference: hasInternalRef ? CERVECERIA_UNION_CLIENT_CODE : (data.paymentReference || CERVECERIA_UNION_CLIENT_CODE),
+    };
+}
+
+function normalizeBancolombiaAppReceipt(data: ExtractedData): ExtractedData {
+    const text = data.rawText || '';
+    const lower = text.toLowerCase();
+    const isApp = lower.includes('pago exitoso') || lower.includes('transferencia exitosa') || lower.includes('comprobante no.');
+    if (!isApp) return data;
+
+    const comprobanteMatch = text.match(/comprobante\s*no\.?\s*[:\-]?\s*([A-Z0-9]+)/i);
+    const convenioMatch = text.match(/(?:empresa o servicio|convenio)\s*[:\-]?\s*.*?(\d{4,8})/i);
+    const productoDestinoMatch = text.match(/(?:producto destino|cuenta)\s*[:\-]?\s*([0-9\-* ]{4,})/i);
+
+    const comprobante = normalizeDigits(comprobanteMatch?.[1] || data.comprobante || data.uniqueTransactionId);
+    const convenio = normalizeDigits(convenioMatch?.[1] || data.accountOrConvenio);
+    const producto = normalizeDigits(productoDestinoMatch?.[1] || '');
+
+    return {
+        ...data,
+        isScreenshot: true,
+        hasPhysicalReceipt: false,
+        bankName: data.bankName && data.bankName !== 'No especificado' ? data.bankName : 'Bancolombia',
+        comprobante: comprobante || data.comprobante,
+        uniqueTransactionId: comprobante || data.uniqueTransactionId,
+        operacion: data.operacion || comprobante || data.operacion,
+        accountOrConvenio: convenio || data.accountOrConvenio || producto || data.accountOrConvenio,
+    };
+}
+
+function normalizeRedebanLikeReceipt(data: ExtractedData): ExtractedData {
+    const text = data.rawText || '';
+    const lower = text.toLowerCase();
+    const isRedebanLike = lower.includes('redeban') || lower.includes('corresponsal') || lower.includes('wompi');
+    if (!isRedebanLike) return data;
+
+    const rrn = normalizeDigits(text.match(/rrn\s*[:\-]?\s*([A-Z0-9]+)/i)?.[1] || data.rrn);
+    const recibo = normalizeDigits(text.match(/recibo\s*[:\-]?\s*([A-Z0-9]+)/i)?.[1] || data.recibo);
+    const apro = normalizeDigits(text.match(/apro\s*[:\-]?\s*([A-Z0-9]+)/i)?.[1] || data.apro);
+    const convenio = normalizeDigits(text.match(/convenio\s*[:\-]?\s*([0-9]+)/i)?.[1] || data.accountOrConvenio);
+    const ref = normalizeDigits(text.match(/ref(?:erencia)?\s*[:\-]?\s*([A-Z0-9]+)/i)?.[1] || data.paymentReference);
+
+    const primaryId = recibo || data.comprobante || data.operacion || data.uniqueTransactionId;
+
+    return {
+        ...data,
+        rrn: rrn || data.rrn,
+        recibo: recibo || data.recibo,
+        apro: apro || data.apro,
+        accountOrConvenio: convenio || data.accountOrConvenio,
+        paymentReference: ref || data.paymentReference,
+        comprobante: data.comprobante || primaryId,
+        uniqueTransactionId: data.uniqueTransactionId || primaryId,
+    };
+}
+
+function applyDeterministicReceiptRules(data: ExtractedData): ExtractedData {
+    const n1 = normalizeSuredBbvaReceipt(data);
+    const n2 = normalizeBancolombiaAppReceipt(n1);
+    const n3 = normalizeRedebanLikeReceipt(n2);
+    return applyCerveceriaReferenceRule(n3);
+}
 
 /**
  * Cargar ejemplos de entrenamiento del localStorage
@@ -88,13 +232,13 @@ export async function analyzeReceipt(
         switch (model) {
             case AIModel.GEMINI:
                 console.log('🔷 Analizando con Gemini 1.5 Flash...');
-                result = await analyzeWithGemini(base64Image, mimeType);
+                result = applyDeterministicReceiptRules(await analyzeWithGemini(base64Image, mimeType));
                 usedModel = AIModel.GEMINI;
                 break;
 
             case AIModel.GPT4_MINI:
                 console.log('🟢 Analizando con GPT-4o-mini...');
-                result = await analyzeWithGPT4(base64Image, mimeType, trainingExamples);
+                result = applyDeterministicReceiptRules(await analyzeWithGPT4(base64Image, mimeType, trainingExamples));
                 usedModel = AIModel.GPT4_MINI;
                 break;
 
@@ -104,28 +248,30 @@ export async function analyzeReceipt(
                     analyzeWithGemini(base64Image, mimeType),
                     analyzeWithGPT4(base64Image, mimeType, trainingExamples)
                 ]);
+                const normalizedGemini = applyDeterministicReceiptRules(geminiResult);
+                const normalizedGpt4 = applyDeterministicReceiptRules(gpt4Result);
 
                 // Comparar resultados
-                const agreement = calculateAgreement(geminiResult, gpt4Result);
+                const agreement = calculateAgreement(normalizedGemini, normalizedGpt4);
                 console.log(`📊 Nivel de acuerdo entre modelos: ${agreement}%`);
 
                 // Si hay alto acuerdo, usar el de mayor confianza
                 if (agreement >= 80) {
-                    result = geminiResult.confidenceScore >= gpt4Result.confidenceScore
-                        ? geminiResult
-                        : gpt4Result;
-                    usedModel = geminiResult.confidenceScore >= gpt4Result.confidenceScore
+                    result = normalizedGemini.confidenceScore >= normalizedGpt4.confidenceScore
+                        ? normalizedGemini
+                        : normalizedGpt4;
+                    usedModel = normalizedGemini.confidenceScore >= normalizedGpt4.confidenceScore
                         ? AIModel.GEMINI
                         : AIModel.GPT4_MINI;
                 } else {
                     // Bajo acuerdo: usar GPT-4 pero marcar para verificación
                     console.warn('⚠️ Modelos difieren significativamente');
                     result = {
-                        ...gpt4Result,
-                        confidenceScore: Math.min(gpt4Result.confidenceScore, 70),
+                        ...normalizedGpt4,
+                        confidenceScore: Math.min(normalizedGpt4.confidenceScore, 70),
                         hasAmbiguousNumbers: true,
                         ambiguousFields: [
-                            ...(gpt4Result.ambiguousFields || []),
+                            ...(normalizedGpt4.ambiguousFields || []),
                             'consensus_disagreement'
                         ]
                     };

@@ -95,11 +95,11 @@ export const sendToGoogleSheets = async (
       } else if (json.status === 'error') {
         return { success: false, message: `Error del Script: ${json.message}` };
       }
+      return { success: false, message: `Respuesta inesperada del Script: ${text.substring(0, 240)}` };
     } catch (e) {
       console.warn("Response was not JSON:", text);
+      return { success: false, message: `Respuesta inválida del servidor: ${text.substring(0, 240)}` };
     }
-
-    return { success: true, message: "Datos enviados correctamente." };
 
   } catch (error) {
     console.error("Google Sheets Error:", error);

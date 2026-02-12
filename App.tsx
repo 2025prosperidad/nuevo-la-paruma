@@ -725,56 +725,82 @@ const App: React.FC = () => {
     }
 
     // 2-B. MÚLTIPLES NÚMEROS DE APROBACIÓN - TODOS DEBEN SER ÚNICOS
-    const uniqueIds = [
-      { field: 'RRN', value: data.rrn },
-      { field: 'RECIBO', value: data.recibo },
-      { field: 'APRO', value: data.apro },
-      { field: 'OPERACION', value: data.operacion },
-      { field: 'COMPROBANTE', value: data.comprobante },
-      { field: 'ID TRANSACCIÓN', value: data.uniqueTransactionId }
-    ];
+    // Excepción controlada DAVIVIENDA (según entrenamiento):
+    // evitar rechazo por coincidencia de un único ID aislado.
+    const isDavivienda = receiptType === ReceiptType.DAVIVIENDA;
 
-    for (const idEntry of uniqueIds) {
-      if (!idEntry.value || String(idEntry.value).trim().length === 0) continue;
-
-      const rawNewId = String(idEntry.value).trim();
-      const fieldName = idEntry.field;
-
-      // NIVEL 1: Verificación EXACTA
-      const exactDuplicate = allRecords.find(r => {
-        const existingIds = [r.rrn, r.recibo, r.apro, r.operacion, r.comprobante, r.uniqueTransactionId];
-        return existingIds.some(existingId => {
-          if (!existingId) return false;
-          const rawExisting = String(existingId).trim();
-          if (rawExisting.length === 0) return false;
-          return rawExisting.toLowerCase() === rawNewId.toLowerCase();
+    if (isDavivienda) {
+      const txnCandidate = String(data.operacion || data.comprobante || data.uniqueTransactionId || '').replace(/\D/g, '');
+      if (txnCandidate.length >= 4) {
+        const compositeDuplicate = allRecords.find(r => {
+          const existingTxn = String(r.operacion || r.comprobante || r.uniqueTransactionId || '').replace(/\D/g, '');
+          return (
+            existingTxn.length >= 4 &&
+            existingTxn === txnCandidate &&
+            r.amount === data.amount &&
+            r.date === data.date
+          );
         });
-      });
 
-      if (exactDuplicate) {
-        return {
-          status: ValidationStatus.DUPLICATE,
-          message: `⛔ ${fieldName} DUPLICADO: "${rawNewId}" ya existe en la base de datos`
-        };
+        if (compositeDuplicate) {
+          return {
+            status: ValidationStatus.DUPLICATE,
+            message: `⛔ DUPLICADO DAVIVIENDA: coincide No. transacción (${txnCandidate}), monto y fecha`
+          };
+        }
       }
+    } else {
+      const uniqueIds = [
+        { field: 'RRN', value: data.rrn },
+        { field: 'RECIBO', value: data.recibo },
+        { field: 'APRO', value: data.apro },
+        { field: 'OPERACION', value: data.operacion },
+        { field: 'COMPROBANTE', value: data.comprobante },
+        { field: 'ID TRANSACCIÓN', value: data.uniqueTransactionId }
+      ];
 
-      // NIVEL 2: Verificación NUMÉRICA
-      const normalizedNew = rawNewId.replace(/\D/g, '');
-      if (normalizedNew.length >= 4) {
-        const numericDuplicate = allRecords.find(r => {
+      for (const idEntry of uniqueIds) {
+        if (!idEntry.value || String(idEntry.value).trim().length === 0) continue;
+
+        const rawNewId = String(idEntry.value).trim();
+        const fieldName = idEntry.field;
+
+        // NIVEL 1: Verificación EXACTA
+        const exactDuplicate = allRecords.find(r => {
           const existingIds = [r.rrn, r.recibo, r.apro, r.operacion, r.comprobante, r.uniqueTransactionId];
           return existingIds.some(existingId => {
             if (!existingId) return false;
-            const normalizedExisting = String(existingId).replace(/\D/g, '');
-            return normalizedExisting.length >= 4 && normalizedExisting === normalizedNew;
+            const rawExisting = String(existingId).trim();
+            if (rawExisting.length === 0) return false;
+            return rawExisting.toLowerCase() === rawNewId.toLowerCase();
           });
         });
 
-        if (numericDuplicate) {
+        if (exactDuplicate) {
           return {
             status: ValidationStatus.DUPLICATE,
-            message: `⛔ ${fieldName} DUPLICADO: "${rawNewId}" (coincide numéricamente: ${normalizedNew})`
+            message: `⛔ ${fieldName} DUPLICADO: "${rawNewId}" ya existe en la base de datos`
           };
+        }
+
+        // NIVEL 2: Verificación NUMÉRICA
+        const normalizedNew = rawNewId.replace(/\D/g, '');
+        if (normalizedNew.length >= 4) {
+          const numericDuplicate = allRecords.find(r => {
+            const existingIds = [r.rrn, r.recibo, r.apro, r.operacion, r.comprobante, r.uniqueTransactionId];
+            return existingIds.some(existingId => {
+              if (!existingId) return false;
+              const normalizedExisting = String(existingId).replace(/\D/g, '');
+              return normalizedExisting.length >= 4 && normalizedExisting === normalizedNew;
+            });
+          });
+
+          if (numericDuplicate) {
+            return {
+              status: ValidationStatus.DUPLICATE,
+              message: `⛔ ${fieldName} DUPLICADO: "${rawNewId}" (coincide numéricamente: ${normalizedNew})`
+            };
+          }
         }
       }
     }
@@ -1094,7 +1120,16 @@ const App: React.FC = () => {
       setErrorMsg("Error inesperado.");
       setStatus(ProcessingStatus.ERROR);
     }
-  }, [localRecords, sheetRecords, allowedAccounts, allowedConvenios, trainingRecords]);
+  }, [
+    localRecords,
+    sheetRecords,
+    allowedAccounts,
+    allowedConvenios,
+    trainingRecords,
+    aiConfig,
+    receiptTypeConfigs,
+    globalConfig
+  ]);
 
   const handleSync = async () => {
     const validRecords = localRecords.filter(r => r.status === ValidationStatus.VALID);
