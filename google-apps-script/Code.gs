@@ -403,7 +403,14 @@ function doPost(e) {
 
 function normalizeIdValue(value) {
   if (value === null || value === undefined) return '';
-  return String(value).trim().toUpperCase();
+  return String(value)
+    .trim()
+    .replace(/^'+/, '') // remover prefijo de texto forzado
+    .toUpperCase();
+}
+
+function normalizeHashValue(value) {
+  return normalizeIdValue(value).replace(/[^A-F0-9]/g, '');
 }
 
 function preserveAsText(value) {
@@ -453,7 +460,7 @@ function buildConsignmentIndexes(sheet) {
 
   rows.forEach(row => {
     if (hashIdx !== undefined) {
-      const h = normalizeIdValue(row[hashIdx]);
+      const h = normalizeHashValue(row[hashIdx]);
       if (h) hashSet.add(h);
     }
 
@@ -487,7 +494,7 @@ function collectCandidateIdsFromPayload(r) {
 }
 
 function isPayloadDuplicate(r, candidateIds, indexes) {
-  const hash = normalizeIdValue(r.imageHash);
+  const hash = normalizeHashValue(r.imageHash);
   if (hash && indexes.hashSet.has(hash)) return true;
 
   for (let i = 0; i < candidateIds.length; i++) {
@@ -497,7 +504,7 @@ function isPayloadDuplicate(r, candidateIds, indexes) {
 }
 
 function registerPayloadInIndex(r, candidateIds, indexes) {
-  const hash = normalizeIdValue(r.imageHash);
+  const hash = normalizeHashValue(r.imageHash);
   if (hash) indexes.hashSet.add(hash);
 
   candidateIds.forEach(id => {

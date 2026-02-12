@@ -531,11 +531,18 @@ const App: React.FC = () => {
   // Normalización consistente para comparar IDs entre frontend y Google Sheets
   const normalizeComparableId = (value?: string | null): string => {
     if (!value) return '';
-    return String(value).trim().toUpperCase();
+    return String(value)
+      .trim()
+      .replace(/^'+/, '') // si llega como texto forzado desde Sheets
+      .toUpperCase();
   };
 
   const normalizeComparableDigits = (value?: string | null): string => {
     return normalizeComparableId(value).replace(/\D/g, '');
+  };
+
+  const normalizeComparableHash = (value?: string | null): string => {
+    return normalizeComparableId(value).replace(/[^A-F0-9]/g, '');
   };
 
   const getRecordComparableIds = (record: Partial<ConsignmentRecord>) => {
@@ -735,8 +742,9 @@ const App: React.FC = () => {
 
     // 2-A. IMAGE HASH CHECK (Detect exact same image file)
     if (data.imageHash) {
+      const incomingHash = normalizeComparableHash(data.imageHash);
       const sameImageDuplicate = allRecords.find(r =>
-        r.imageHash && r.imageHash === data.imageHash
+        normalizeComparableHash(r.imageHash) === incomingHash
       );
 
       if (sameImageDuplicate) {
@@ -1179,12 +1187,12 @@ const App: React.FC = () => {
       let skippedAsDuplicate = 0;
 
       for (const record of validRecords) {
-        const newHash = normalizeComparableId(record.imageHash);
+        const newHash = normalizeComparableHash(record.imageHash);
         const newIds = getRecordComparableIds(record);
         const newDigitIds = newIds.map(v => normalizeComparableDigits(v));
 
         const duplicateFound = comparisonBase.find(existing => {
-          const existingHash = normalizeComparableId(existing.imageHash);
+          const existingHash = normalizeComparableHash(existing.imageHash);
           if (newHash && existingHash && newHash === existingHash) return true;
 
           const existingIds = getRecordComparableIds(existing);
