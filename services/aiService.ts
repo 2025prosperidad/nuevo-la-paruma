@@ -80,9 +80,10 @@ function normalizeThermalCode(value?: string | null, standardLength: number = 6)
 function extractRedebanTriplet(rawText: string): { recibo?: string; rrn?: string; apro?: string } {
     const text = rawText || '';
 
-    // 1) Caso típico en una sola línea: "RECIBO: 224936   RRN: 228331   APRO: 096133"
+    // 1) Caso típico: los tres en la misma o en líneas contiguas.
+    //    Usamos [\s\S] para cruzar saltos de línea, gap amplio (80 chars).
     const lineMatch = text.match(
-        /recib[o0]\s*[:\-]?\s*([0-9]{5,8}).{0,32}?(?:rrn|rnn|ran|rn)\s*[:\-]?\s*([0-9]{5,8}).{0,32}?(?:apro|apr0|aprc|apr)\s*[:\-]?\s*([0-9]{5,8})/i
+        /recib[o0]\s*[:\-]?\s*([0-9]{5,8})[\s\S]{0,80}?(?:rrn|rnn|ran|rn)\s*[:\-]?\s*([0-9]{5,8})[\s\S]{0,80}?(?:apro|apr0|aprc|apr|aprob)\s*[:\-]?\s*([0-9]{5,8})/i
     );
     if (lineMatch) {
         return {
@@ -92,10 +93,35 @@ function extractRedebanTriplet(rawText: string): { recibo?: string; rrn?: string
         };
     }
 
-    // 2) Búsqueda individual con tolerancia OCR
-    const recibo = text.match(/(?:^|\n|\s)recib[o0]\s*[:\-]?\s*([0-9]{5,8})(?:\s|$)/im)?.[1];
-    const rrn = text.match(/(?:^|\n|\s)(?:rrn|rnn|ran|rn)\s*[:\-]?\s*([0-9]{5,8})(?:\s|$)/im)?.[1];
-    const apro = text.match(/(?:^|\n|\s)(?:apro|apr0|aprc|apr)\s*[:\-]?\s*([0-9]{5,8})(?:\s|$)/im)?.[1];
+    // 2) Búsqueda individual con múltiples patrones y tolerancia OCR.
+    //    Usamos varios patrones de mayor a menor especificidad.
+    const findField = (patterns: RegExp[]): string | undefined => {
+        for (const pat of patterns) {
+            const m = text.match(pat);
+            if (m?.[1]) return m[1];
+        }
+        return undefined;
+    };
+
+    const recibo = findField([
+        /recib[o0]\s*[:\-]\s*([0-9]{4,8})/i,
+        /(?:^|\n)\s*recib[o0]\s*[:\-]?\s*([0-9]{4,8})/im,
+        /\brecib[o0][^A-Z0-9]{0,8}([0-9]{4,8})/i,
+    ]);
+
+    const rrn = findField([
+        /(?:rrn|rnn|ran)\s*[:\-]\s*([0-9]{4,8})/i,
+        /(?:^|\n)\s*(?:rrn|rnn|ran)\s*[:\-]?\s*([0-9]{4,8})/im,
+        /\b(?:rrn|rnn)[^A-Z0-9]{0,8}([0-9]{4,8})/i,
+    ]);
+
+    const apro = findField([
+        /(?:apro|apr0|aprc|aprob|aprobacion)\s*[:\-]\s*([0-9]{4,8})/i,
+        /(?:^|\n)\s*(?:apro|apr0|aprc|aprob)\s*[:\-]?\s*([0-9]{4,8})/im,
+        /\b(?:apro|apr0|aprob)[^A-Z0-9]{0,8}([0-9]{4,8})/i,
+        // A veces el OCR devuelve "APRO" pegado al número anterior: "228331APRO096133"
+        /(?:rrn|rnn)\s*[:\-]?\s*[0-9]{4,8}\s*(?:apro|apr0|aprob)\s*[:\-]?\s*([0-9]{4,8})/i,
+    ]);
 
     return { recibo: recibo || undefined, rrn: rrn || undefined, apro: apro || undefined };
 }
@@ -198,25 +224,28 @@ function normalizeRedebanLikeReceipt(data: ExtractedData): ExtractedData {
 
     const triplet = extractRedebanTriplet(text);
 
+    // Prioridad: 1) tripleta del rawText, 2) campo directo de IA, 3) regex adicionales
     const rrn = normalizeThermalCode(
         triplet.rrn ||
-        text.match(/(?:^|\n)\s*rrn\s*[:\-]?\s*([A-Z0-9]{4,})/im)?.[1] ||
-        text.match(/\brrn[^A-Z0-9]{0,8}([A-Z0-9]{4,})/i)?.[1] ||
-        data.rrn,
+        data.rrn ||
+        text.match(/(?:rrn|rnn|ran)\s*[:\-]\s*([0-9]{4,8})/i)?.[1] ||
+        text.match(/\b(?:rrn|rnn)[^A-Z0-9]{0,8}([0-9]{4,8})/i)?.[1],
         6
     );
     const recibo = normalizeThermalCode(
         triplet.recibo ||
-        text.match(/(?:^|\n)\s*recib(?:o)?\s*[:\-]?\s*([A-Z0-9]{4,})/im)?.[1] ||
-        text.match(/\brecib(?:o)?[^A-Z0-9]{0,8}([A-Z0-9]{4,})/i)?.[1] ||
-        data.recibo,
+        data.recibo ||
+        text.match(/recib[o0]\s*[:\-]\s*([0-9]{4,8})/i)?.[1] ||
+        text.match(/\brecib[o0][^A-Z0-9]{0,8}([0-9]{4,8})/i)?.[1],
         6
     );
     const apro = normalizeThermalCode(
         triplet.apro ||
-        text.match(/(?:^|\n)\s*apro(?:b)?\s*[:\-]?\s*([A-Z0-9]{4,})/im)?.[1] ||
-        text.match(/\bapro(?:b)?[^A-Z0-9]{0,8}([A-Z0-9]{4,})/i)?.[1] ||
-        data.apro,
+        data.apro ||
+        text.match(/(?:apro|apr0|aprc|aprob|aprobacion)\s*[:\-]\s*([0-9]{4,8})/i)?.[1] ||
+        text.match(/\b(?:apro|apr0|aprob)[^A-Z0-9]{0,8}([0-9]{4,8})/i)?.[1] ||
+        // Último recurso: buscar 6 dígitos después de "RRN: XXXXXX" en la misma región
+        text.match(/(?:rrn|rnn)\s*[:\-]?\s*[0-9]{4,8}[\s\S]{0,40}?(?:apro|apr0|aprob)\s*[:\-]?\s*([0-9]{4,8})/i)?.[1],
         6
     );
     const convenio = normalizeDigits(text.match(/convenio\s*[:\-]?\s*([0-9]+)/i)?.[1] || data.accountOrConvenio);
