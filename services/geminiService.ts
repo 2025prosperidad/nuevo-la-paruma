@@ -399,6 +399,21 @@ Los ejemplos de entrenamiento mostrados arriba son REGLAS OBLIGATORIAS que DEBES
        - isReadable debe ser false
        - hasAmbiguousNumbers debe ser true
 
+    11. **📜 RAW TEXT - ABSOLUTAMENTE CRÍTICO**:
+       - rawText DEBE contener TODO el texto visible de la imagen, mínimo 500 caracteres.
+       - NUNCA truncar rawText. Incluir TODAS las líneas, especialmente las que contienen:
+         RECIBO, RRN, APRO, CONVENIO, REF, VALOR, OPERACION, UPC, C.UNICO, TER
+       - Para recibos Redeban térmicos, las líneas "RECIBO: XXXXX  RRN: XXXXX  APRO: XXXXX" 
+         son LAS MÁS IMPORTANTES y deben aparecer COMPLETAS en rawText.
+       - Si no incluyes estas líneas en rawText, la extracción será incorrecta.
+
+    12. **⚠️ REDEBAN TÉRMICO - TRIPLETA OBLIGATORIA**:
+       - En TODOS los recibos que digan "Redeban" DEBES extraer RRN, RECIBO y APRO.
+       - Estos 3 campos SIEMPRE están en el recibo, generalmente en la misma línea o líneas contiguas.
+       - Formato típico: "RECIBO: 224936   RRN: 228331   APRO: 096133"
+       - Si NO los encuentras, reduce confidenceScore a 50 y marca hasAmbiguousNumbers=true.
+       - NUNCA inventes números. Si no se leen, deja el campo vacío y baja el score.
+
     Return strictly JSON with all extracted data.
   `;
 
@@ -430,9 +445,9 @@ Los ejemplos de entrenamiento mostrados arriba son REGLAS OBLIGATORIAS que DEBES
 
             // Transaction IDs
             uniqueTransactionId: { type: Type.STRING, description: "Primary transaction ID" },
-            rrn: { type: Type.STRING, description: "RRN number from Redeban" },
-            recibo: { type: Type.STRING, description: "RECIBO number" },
-            apro: { type: Type.STRING, description: "APRO/Approval code" },
+            rrn: { type: Type.STRING, description: "RRN number from Redeban thermal receipts. Look for 'RRN:' followed by 5-6 digits (e.g., '228331'). CRITICAL: Extract this exactly as printed." },
+            recibo: { type: Type.STRING, description: "RECIBO number from Redeban thermal receipts. Look for 'RECIBO:' followed by 5-6 digits (e.g., '224936'). CRITICAL: Extract this exactly as printed." },
+            apro: { type: Type.STRING, description: "APRO/Approval code from Redeban thermal receipts. Look for 'APRO:' followed by 5-6 digits (e.g., '096133'). CRITICAL: Extract this exactly as printed." },
             operacion: { type: Type.STRING, description: "Operation number" },
             comprobante: { type: Type.STRING, description: "Comprobante number" },
 
@@ -455,7 +470,7 @@ Los ejemplos de entrenamiento mostrados arriba son REGLAS OBLIGATORIAS que DEBES
 
             imageQualityScore: { type: Type.NUMBER, description: "0-100 image quality" },
             isReadable: { type: Type.BOOLEAN, description: "True if legible" },
-            rawText: { type: Type.STRING, description: "Key extracted text for debug" }
+            rawText: { type: Type.STRING, description: "ALL visible text from the image, especially lines with RECIBO, RRN, APRO, OPERACION, UPC, CONVENIO, REF, VALOR. Include at least 500 characters. Do NOT truncate important fields." }
           },
           required: ["imageQualityScore", "isReadable", "amount", "confidenceScore", "hasAmbiguousNumbers", "isScreenshot", "hasPhysicalReceipt"]
         },

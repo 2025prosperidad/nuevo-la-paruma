@@ -99,7 +99,11 @@ CAMPOS A EXTRAER:
 
 15. **isReadable** (boolean): true si la imagen es legible.
 
-16. **rawText** (string): Todo el texto visible en la imagen.
+16. **rawText** (string): TODO el texto visible en la imagen. INCLUIR al menos 500 caracteres. NUNCA truncar las líneas que contengan RECIBO, RRN, APRO, UPC, CONVENIO, REF, VALOR.
+
+17. **rrn** (string | null): Número RRN de recibos térmicos Redeban (ejemplo: "228331").
+18. **recibo** (string | null): Número de RECIBO de recibos térmicos Redeban (ejemplo: "224936").
+19. **apro** (string | null): Número APRO de recibos térmicos Redeban (ejemplo: "096133").
 
 IMPORTANTE:
 - Sé DETERMINISTA: la misma imagen debe dar siempre el mismo resultado.

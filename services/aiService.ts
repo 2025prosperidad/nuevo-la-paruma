@@ -223,7 +223,28 @@ function normalizeRedebanLikeReceipt(data: ExtractedData): ExtractedData {
     const ref = normalizeDigits(text.match(/ref(?:erencia)?\s*[:\-]?\s*([A-Z0-9]+)/i)?.[1] || data.paymentReference);
     const parsedDateTime = parseSpanishDateTimeFromRawText(text);
 
-    const primaryId = recibo || data.comprobante || data.operacion || data.uniqueTransactionId;
+    // PROTECCIÓN: En Redeban térmico, si no encontramos recibo/rrn/apro en rawText,
+    // el número que la IA puso en operacion/comprobante probablemente es inventado.
+    // Solo confiar en IDs que vengan de rawText verificado o de la tripleta.
+    const hasVerifiedId = Boolean(recibo || rrn || apro);
+    const aiOperacion = data.operacion ? normalizeDigits(data.operacion) : '';
+    const aiComprobante = data.comprobante ? normalizeDigits(data.comprobante) : '';
+    const aiUniqueId = data.uniqueTransactionId ? normalizeDigits(data.uniqueTransactionId) : '';
+
+    // Si la IA devolvió un operacion/comprobante pero NO tenemos tripleta verificada,
+    // verificar si ese número aparece literalmente en rawText. Si no, descartarlo.
+    const isOperacionInText = aiOperacion && text.includes(aiOperacion);
+    const isComprobanteInText = aiComprobante && text.includes(aiComprobante);
+
+    const safeOperacion = hasVerifiedId
+        ? (recibo || aiOperacion)
+        : (isOperacionInText ? aiOperacion : recibo || '');
+    const safeComprobante = hasVerifiedId
+        ? (recibo || aiComprobante)
+        : (isComprobanteInText ? aiComprobante : recibo || '');
+    const safeUniqueId = hasVerifiedId
+        ? (recibo || aiUniqueId)
+        : (isOperacionInText ? aiUniqueId : (isComprobanteInText ? aiUniqueId : recibo || ''));
 
     return {
         ...data,
@@ -232,12 +253,19 @@ function normalizeRedebanLikeReceipt(data: ExtractedData): ExtractedData {
         apro: apro || data.apro,
         accountOrConvenio: convenio || data.accountOrConvenio,
         paymentReference: ref || data.paymentReference,
-        // En este formato el recibo es el identificador más estable para comparación.
-        operacion: data.operacion || primaryId,
-        comprobante: data.comprobante || primaryId,
-        uniqueTransactionId: data.uniqueTransactionId || primaryId,
+        operacion: safeOperacion || data.operacion,
+        comprobante: safeComprobante || data.comprobante,
+        uniqueTransactionId: safeUniqueId || data.uniqueTransactionId,
         date: parsedDateTime.date || data.date,
         time: parsedDateTime.time || data.time,
+        // Si no hay IDs verificados, marcar para verificación manual
+        hasAmbiguousNumbers: !hasVerifiedId ? true : data.hasAmbiguousNumbers,
+        ambiguousFields: !hasVerifiedId
+            ? [...(data.ambiguousFields || []), 'recibo', 'rrn', 'apro']
+            : data.ambiguousFields,
+        confidenceScore: !hasVerifiedId
+            ? Math.min(data.confidenceScore, 60)
+            : data.confidenceScore,
     };
 }
 
