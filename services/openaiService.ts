@@ -26,93 +26,85 @@ const getRetryDelayMs = (error: any, fallbackMs: number): number => {
  * Construir prompt mejorado con ejemplos de entrenamiento
  */
 function buildPromptWithTraining(trainingExamples: TrainingRecord[]): string {
-    const compactExamples = trainingExamples.slice(0, 4);
-    const examplesText = compactExamples.length > 0
-        ? compactExamples.map((t, i) => `
-EJEMPLO ${i + 1} (${t.receiptType}):
-- Decisión: ${t.decision}
-- Razón: ${String(t.decisionReason || '').substring(0, 180)}
-- Banco: ${t.correctData.bankName}
-- Monto: ${t.correctData.amount}
-- Comprobante: ${t.correctData.comprobante || t.correctData.operacion || 'N/A'}
-- Fecha: ${t.correctData.date}
-`).join('\n')
-        : 'No hay ejemplos de entrenamiento disponibles aún.';
+    // Incluir hasta 10 ejemplos con TODOS los campos de entrenamiento
+    const examples = trainingExamples.slice(0, 10);
+    const examplesText = examples.length > 0
+        ? examples.map((t, i) => {
+            const d = t.correctData;
+            const fields = [
+                `Tipo: ${t.receiptType}`,
+                `Decisión: ${t.decision}`,
+                `Banco: ${d.bankName}`,
+                d.city ? `Ciudad: ${d.city}` : null,
+                `Cuenta/Convenio: ${d.accountOrConvenio}`,
+                `Monto: ${d.amount}`,
+                `Fecha: ${d.date}`,
+                d.time ? `Hora: ${d.time}` : null,
+                d.rrn ? `RRN: ${d.rrn}` : null,
+                d.recibo ? `RECIBO: ${d.recibo}` : null,
+                d.apro ? `APRO: ${d.apro}` : null,
+                d.operacion ? `Operación: ${d.operacion}` : null,
+                d.comprobante ? `Comprobante: ${d.comprobante}` : null,
+                d.paymentReference ? `Referencia Pago: ${d.paymentReference}` : null,
+                d.clientCode ? `Código Cliente: ${d.clientCode}` : null,
+                d.creditCardLast4 ? `Tarjeta (últimos 4): ${d.creditCardLast4}` : null,
+                `Razón: ${t.decisionReason || ''}`,
+                t.notes ? `Notas: ${t.notes}` : null,
+            ].filter(Boolean).join('\n  ');
+            return `EJEMPLO ${i + 1}:\n  ${fields}`;
+        }).join('\n\n')
+        : '';
 
-    return `Eres un experto en análisis de recibos bancarios colombianos. Tu tarea es extraer información de forma PRECISA y DETERMINISTA.
+    const trainingSection = examples.length > 0
+        ? `
+🎓 ENTRENAMIENTO OBLIGATORIO — ${examples.length} EJEMPLOS VERIFICADOS POR HUMANOS:
 
-INSTRUCCIONES CRÍTICAS PARA BANCOLOMBIA APP:
+Estos ejemplos son la VERDAD. Aprende de ellos y aplica las mismas reglas.
+Si la imagen es similar a un ejemplo, extrae los datos de la MISMA forma.
+Las notas y razones del entrenador son INSTRUCCIONES que DEBES seguir.
 
-Basado en entrenamientos previos, estos recibos SIEMPRE deben ser aceptados si:
-1. ✅ Comprobante visible y legible (10 dígitos)
-2. ✅ Monto claramente visible
-3. ✅ Fecha presente
-4. ✅ Producto destino (cuenta/convenio) visible
-5. ✅ No hay signos de manipulación
-
-EJEMPLOS DE ENTRENAMIENTOS PREVIOS:
 ${examplesText}
 
-REGLAS ESPECÍFICAS BANCOLOMBIA APP:
-- Capturas de "¡Pago exitoso!" o "¡Transferencia exitosa!" son VÁLIDAS.
-- Para "Transferencia exitosa", el "Producto destino" es el número de cuenta.
-- "Distribuidora La Paruma Sas" o "La Paruma" es nuestra empresa. Extráelo como bankName o verifica su cuenta destino.
-- Comprobante de 10 dígitos es el número único principal (campo "comprobante").
-- Código cliente 10813353 = La Paruma (Cervecería Unión).
-- Convenio 32137 = Cervecería Unión T R.
-- Cuenta destino puede aparecer parcial (*8520, *1640, *8421, *4586) o completa (245-000209-50).
+⚠️ PRIORIDAD: Los ejemplos de entrenamiento tienen MAYOR prioridad que cualquier otra regla.
+`
+        : '';
 
-CAMPOS A EXTRAER:
+    return `Eres un experto en análisis de recibos bancarios colombianos.
 
-1. **bankName** (string): Nombre del banco o Receptor (ej: "Bancolombia", "Distribuidora La Paruma Sas").
+TU TAREA: Analiza la imagen del recibo y extrae TODOS los datos visibles con precisión.
+${trainingSection}
+CAMPOS A EXTRAER (devuelve JSON):
+- bankName (string): Nombre del banco
+- city (string|null): Ciudad si es visible
+- accountOrConvenio (string): Cuenta destino o número de convenio
+- amount (number): Monto sin puntos ni comas
+- date (string): Fecha en YYYY-MM-DD. Meses en español: ENE=01, FEB=02, MAR=03, ABR=04, MAY=05, JUN=06, JUL=07, AGO=08, SEP=09, OCT=10, NOV=11, DIC=12
+- time (string|null): Hora en HH:MM
+- rrn (string|null): Número RRN exacto como aparece en el recibo
+- recibo (string|null): Número de RECIBO exacto como aparece
+- apro (string|null): Número APRO o Aprob exacto como aparece
+- operacion (string|null): Número de operación
+- comprobante (string|null): Número de comprobante
+- paymentReference (string|null): Referencia de pago o código cliente
+- clientCode (string|null): Código del cliente si es visible
+- creditCardLast4 (string|null): Últimos 4 dígitos de tarjeta si aplica
+- isCreditCardPayment (boolean): true si es pago con tarjeta
+- imageQualityScore (number): Calidad 0-100
+- confidenceScore (number): Confianza 0-100
+- isScreenshot (boolean): true si es captura de app
+- hasPhysicalReceipt (boolean): true si tiene RRN/RECIBO/APRO
+- isReadable (boolean): true si es legible
+- rawText (string): TODO el texto visible, mínimo 500 caracteres, NUNCA truncar
+- hasAmbiguousNumbers (boolean): true si algún número es dudoso
+- ambiguousFields (string[]): Campos con números dudosos
 
-2. **city** (string | null): Ciudad donde se hizo la transacción (si está visible).
+REGLAS:
+1. NUNCA inventes datos. Si no ves un campo, déjalo null.
+2. Extrae los números EXACTAMENTE como aparecen, incluyendo ceros iniciales.
+3. Si el recibo es similar a un ejemplo de entrenamiento, sigue la misma lógica.
+4. Sé DETERMINISTA: la misma imagen siempre debe dar el mismo resultado.
 
-3. **accountOrConvenio** (string): 
-   - Para Bancolombia App: el número de cuenta destino completo o parcial. Look for "Producto destino".
-   - Para recibos de convenio: el código del convenio (ej: "32137", "56885").
-   - Si solo ves últimos 4 dígitos (*8520), extraer esos 4 dígitos: "8520".
-
-4. **amount** (number): Monto en pesos colombianos SIN puntos ni comas (ej: 1400000, 335000, 1197742).
-
-5. **date** (string): Fecha en formato YYYY-MM-DD (ej: "2026-01-23").
-
-6. **time** (string | null): Hora en formato HH:MM (ej: "12:30", "09:17", "13:19").
-
-7. **comprobante** (string | null): Número de comprobante de 10 dígitos (ej: "0000003046", "0000048062", "0000010115").
-   - Este es el número MÁS IMPORTANTE en Bancolombia App.
-   - Aparece como "Comprobante No." en la pantalla.
-
-8. **operacion** (string | null): Número de operación (si es diferente al comprobante).
-
-9. **paymentReference** (string | null): Referencia de pago o código cliente (puede repetirse).
-
-10. **clientCode** (string | null): Código cliente Cervunión (10813353) si está visible.
-
-11. **imageQualityScore** (number): Calidad de 0-100 (90-100 para capturas de app).
-
-12. **confidenceScore** (number): Tu confianza en la extracción de 0-100 (95-100 si es claro).
-
-13. **isScreenshot** (boolean): true si es captura de app, false si es foto de recibo físico.
-
-14. **hasPhysicalReceipt** (boolean): false para capturas de app, true para recibos térmicos.
-
-15. **isReadable** (boolean): true si la imagen es legible.
-
-16. **rawText** (string): TODO el texto visible en la imagen. INCLUIR al menos 500 caracteres. NUNCA truncar las líneas que contengan RECIBO, RRN, APRO, UPC, CONVENIO, REF, VALOR.
-
-17. **rrn** (string | null): Número RRN de recibos térmicos Redeban o Wompi. En Redeban son 6 dígitos (ej: "228331"). En Wompi pueden ser 12+ dígitos (ej: "804289283172"). Extraer el número COMPLETO.
-18. **recibo** (string | null): Número de RECIBO de recibos térmicos Redeban o Wompi (ejemplo: "224936", "283172").
-19. **apro** (string | null): Número APRO o Aprob de recibos térmicos. En Redeban aparece como "APRO:" (ej: "096133"). En Wompi aparece como "Aprob:" (ej: "747977"). Ambos son el mismo campo.
-
-IMPORTANTE:
-- Sé DETERMINISTA: la misma imagen debe dar siempre el mismo resultado.
-- Para Bancolombia "Transferencia exitosa", extraer el número de "Producto destino".
-- Si aparece "Distribuidora La Paruma Sas", es para nosotros.
-- Calidad de capturas de app debe ser 90-100.
-- Confianza debe ser 95-100 si todos los campos están claros.
-
-Responde ÚNICAMENTE con un objeto JSON válido, sin markdown ni explicaciones adicionales.`;
+Responde ÚNICAMENTE con JSON válido.`;
 }
 
 /**

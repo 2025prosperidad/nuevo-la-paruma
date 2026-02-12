@@ -234,81 +234,64 @@ function normalizeRedebanLikeReceipt(data: ExtractedData): ExtractedData {
 
     const triplet = extractRedebanTriplet(text);
 
-    // Prioridad: 1) tripleta del rawText, 2) campo directo de IA, 3) regex adicionales
-    // RRN puede ser 4-15 dígitos (Wompi usa RRN largo: ej 804289283172)
-    const isWompi = lower.includes('wompi');
-    const rawRrn =
-        triplet.rrn ||
-        data.rrn ||
+    // FILOSOFÍA: La IA ya aprendió de los entrenamientos.
+    // El regex SOLO rellena campos que la IA dejó vacíos.
+    // NUNCA sobreescribe lo que la IA ya extrajo.
+
+    // RRN: usar lo de la IA primero, solo buscar en rawText si la IA no lo extrajo
+    const rawRrn = data.rrn || triplet.rrn ||
         text.match(/(?:rrn|rnn|ran)\s*[:\-]\s*([0-9]{4,15})/i)?.[1] ||
         text.match(/\b(?:rrn|rnn)[^A-Z0-9]{0,8}([0-9]{4,15})/i)?.[1];
-    // Para Wompi el RRN es largo (12 dígitos), no normalizar a 6.
-    // Para Redeban estándar normalizar a 6.
     const rrnLength = rawRrn && rawRrn.length > 8 ? rawRrn.length : 6;
     const rrn = normalizeThermalCode(rawRrn, rrnLength);
+
+    // RECIBO: usar lo de la IA primero
     const recibo = normalizeThermalCode(
-        triplet.recibo ||
-        data.recibo ||
+        data.recibo || triplet.recibo ||
         text.match(/recib[o0]\s*[:\-]\s*([0-9]{4,8})/i)?.[1] ||
         text.match(/\brecib[o0][^A-Z0-9]{0,8}([0-9]{4,8})/i)?.[1],
         6
     );
+
+    // APRO: usar lo de la IA primero
     const apro = normalizeThermalCode(
-        triplet.apro ||
-        data.apro ||
+        data.apro || triplet.apro ||
         text.match(/(?:apro|apr0|aprc|aprob|aprobacion)\s*[:\-]\s*([0-9]{4,8})/i)?.[1] ||
         text.match(/\b(?:apro|apr0|aprob)[^A-Z0-9]{0,8}([0-9]{4,8})/i)?.[1] ||
-        // Último recurso: buscar APRO/Aprob cerca de RRN en la misma región (RRN puede ser largo en Wompi)
         text.match(/(?:rrn|rnn)\s*[:\-]?\s*[0-9]{4,15}[\s\S]{0,60}?(?:apro|apr0|aprob)\s*[:\-]?\s*([0-9]{4,8})/i)?.[1],
         6
     );
-    const convenio = normalizeDigits(text.match(/convenio\s*[:\-]?\s*([0-9]+)/i)?.[1] || data.accountOrConvenio);
-    const ref = normalizeDigits(text.match(/ref(?:erencia)?\s*[:\-]?\s*([A-Z0-9]+)/i)?.[1] || data.paymentReference);
+
+    // Fecha: solo corregir si la IA no extrajo una fecha en formato correcto
     const parsedDateTime = parseSpanishDateTimeFromRawText(text);
+    const aiDateLooksWrong = data.date && !/^\d{4}-\d{2}-\d{2}$/.test(data.date);
 
-    // PROTECCIÓN: En Redeban térmico, si no encontramos recibo/rrn/apro en rawText,
-    // el número que la IA puso en operacion/comprobante probablemente es inventado.
-    // Solo confiar en IDs que vengan de rawText verificado o de la tripleta.
-    const hasVerifiedId = Boolean(recibo || rrn || apro);
-    const aiOperacion = data.operacion ? normalizeDigits(data.operacion) : '';
-    const aiComprobante = data.comprobante ? normalizeDigits(data.comprobante) : '';
-    const aiUniqueId = data.uniqueTransactionId ? normalizeDigits(data.uniqueTransactionId) : '';
+    // Convenio/Referencia: solo rellenar si la IA los dejó vacíos
+    const convenio = data.accountOrConvenio || normalizeDigits(text.match(/convenio\s*[:\-]?\s*([0-9]+)/i)?.[1]);
+    const ref = data.paymentReference || normalizeDigits(text.match(/ref(?:erencia)?\s*[:\-]?\s*([A-Z0-9]+)/i)?.[1]);
 
-    // Si la IA devolvió un operacion/comprobante pero NO tenemos tripleta verificada,
-    // verificar si ese número aparece literalmente en rawText. Si no, descartarlo.
-    const isOperacionInText = aiOperacion && text.includes(aiOperacion);
-    const isComprobanteInText = aiComprobante && text.includes(aiComprobante);
-
-    const safeOperacion = hasVerifiedId
-        ? (recibo || aiOperacion)
-        : (isOperacionInText ? aiOperacion : recibo || '');
-    const safeComprobante = hasVerifiedId
-        ? (recibo || aiComprobante)
-        : (isComprobanteInText ? aiComprobante : recibo || '');
-    const safeUniqueId = hasVerifiedId
-        ? (recibo || aiUniqueId)
-        : (isOperacionInText ? aiUniqueId : (isComprobanteInText ? aiUniqueId : recibo || ''));
+    // PROTECCIÓN ANTI-INVENCIÓN: Solo para operacion/comprobante.
+    // Si la IA devolvió un número que NO aparece en rawText, descartarlo.
+    const aiOperacion = normalizeDigits(data.operacion);
+    const aiComprobante = normalizeDigits(data.comprobante);
+    const safeOperacion = (!aiOperacion || text.includes(aiOperacion)) ? data.operacion : (recibo || '');
+    const safeComprobante = (!aiComprobante || text.includes(aiComprobante)) ? data.comprobante : (recibo || '');
 
     return {
         ...data,
+        // Solo rellenar campos vacíos, nunca sobreescribir la IA
         rrn: rrn || data.rrn,
         recibo: recibo || data.recibo,
         apro: apro || data.apro,
         accountOrConvenio: convenio || data.accountOrConvenio,
         paymentReference: ref || data.paymentReference,
-        operacion: safeOperacion || data.operacion,
-        comprobante: safeComprobante || data.comprobante,
-        uniqueTransactionId: safeUniqueId || data.uniqueTransactionId,
-        date: parsedDateTime.date || data.date,
-        time: parsedDateTime.time || data.time,
-        // Si no hay IDs verificados, marcar para verificación manual
-        hasAmbiguousNumbers: !hasVerifiedId ? true : data.hasAmbiguousNumbers,
-        ambiguousFields: !hasVerifiedId
-            ? [...(data.ambiguousFields || []), 'recibo', 'rrn', 'apro']
-            : data.ambiguousFields,
-        confidenceScore: !hasVerifiedId
-            ? Math.min(data.confidenceScore, 60)
-            : data.confidenceScore,
+        // Protección anti-invención solo para operacion/comprobante
+        operacion: safeOperacion || recibo || data.operacion,
+        comprobante: safeComprobante || recibo || data.comprobante,
+        uniqueTransactionId: data.uniqueTransactionId || recibo || safeOperacion || safeComprobante,
+        // Solo corregir fecha si la IA la extrajo mal
+        date: aiDateLooksWrong ? (parsedDateTime.date || data.date) : (data.date || parsedDateTime.date),
+        time: data.time || parsedDateTime.time,
     };
 }
 
@@ -322,21 +305,23 @@ function applyDeterministicReceiptRules(data: ExtractedData): ExtractedData {
 /**
  * Cargar ejemplos de entrenamiento del localStorage
  */
-function loadTrainingExamples(maxExamples: number = 10): TrainingRecord[] {
+function loadTrainingExamples(maxExamples: number = 15): TrainingRecord[] {
     try {
         const trainingDataRaw = localStorage.getItem('training_records');
         if (!trainingDataRaw) return [];
 
         const allRecords: TrainingRecord[] = JSON.parse(trainingDataRaw);
 
-        // Filtrar solo registros aceptados
-        const acceptedRecords = allRecords.filter(r => r.decision === 'ACCEPT');
+        // Incluir TODOS los entrenamientos (ACCEPT y REJECT) para que la IA aprenda ambos
+        const validRecords = allRecords.filter(r =>
+            r.decision === 'ACCEPT' || r.decision === 'REJECT_BLURRY' || r.decision === 'REJECT_DUPLICATE'
+        );
 
         // Eliminar duplicados por hash
         const uniqueRecords: TrainingRecord[] = [];
         const seenHashes = new Set<string>();
 
-        for (const record of acceptedRecords) {
+        for (const record of validRecords) {
             if (record.imageHash) {
                 if (seenHashes.has(record.imageHash)) continue;
                 seenHashes.add(record.imageHash);

@@ -36,19 +36,21 @@ const getTrainingExamples = (receiptType?: ReceiptType): string => {
 
     const allTrainingRecords: TrainingRecord[] = JSON.parse(trainingDataRaw);
 
-    // Filtrar solo registros aceptados
-    const acceptedRecords = allTrainingRecords.filter(r => r.decision === 'ACCEPT');
+    // Incluir TODOS los entrenamientos (ACCEPT y REJECT) para que la IA aprenda ambos
+    const trainedRecords = allTrainingRecords.filter(r =>
+      r.decision === 'ACCEPT' || r.decision === 'REJECT_BLURRY' || r.decision === 'REJECT_DUPLICATE'
+    );
 
-    if (acceptedRecords.length === 0) return '';
+    if (trainedRecords.length === 0) return '';
 
     // Si hay tipo de recibo específico, filtrar por ese tipo primero
     let relevantRecords = receiptType
-      ? acceptedRecords.filter(r => r.receiptType === receiptType)
-      : acceptedRecords;
+      ? trainedRecords.filter(r => r.receiptType === receiptType)
+      : trainedRecords;
 
     // Si no hay registros del tipo específico, usar todos
     if (relevantRecords.length === 0) {
-      relevantRecords = acceptedRecords;
+      relevantRecords = trainedRecords;
     }
 
     // ELIMINAR DUPLICADOS: Usar imageHash o combinación de campos únicos
@@ -75,48 +77,51 @@ const getTrainingExamples = (receiptType?: ReceiptType): string => {
       uniqueRecords.push(record);
     }
 
-    // Tomar máximo 3 ejemplos más recientes (sin duplicados)
+    // Tomar máximo 10 ejemplos más recientes (sin duplicados)
     const examples = uniqueRecords
       .sort((a, b) => (b.trainedAt || 0) - (a.trainedAt || 0))
-      .slice(0, 3);
+      .slice(0, 10);
 
     if (examples.length === 0) return '';
 
     console.log(`📚 Cargando ${examples.length} ejemplos de entrenamiento${receiptType ? ` para tipo ${receiptType}` : ''}`);
 
-    // Construir texto de ejemplos
+    // Construir texto de ejemplos con TODOS los campos
     const examplesText = examples.map((record, index) => {
-      const data = record.correctData;
-      return `
-        📚 EJEMPLO DE ENTRENAMIENTO ${index + 1} (${record.receiptType}):
-        Banco: ${data.bankName}
-        Cuenta/Convenio: ${data.accountOrConvenio}
-        Monto: ${data.amount}
-        Fecha: ${data.date}
-        ${data.rrn ? `RRN: ${data.rrn}` : ''}
-        ${data.recibo ? `RECIBO: ${data.recibo}` : ''}
-        ${data.apro ? `APRO: ${data.apro}` : ''}
-        ${data.operacion ? `OPERACION: ${data.operacion}` : ''}
-        ${data.comprobante ? `COMPROBANTE: ${data.comprobante}` : ''}
-        ${data.paymentReference ? `Referencia Pago: ${data.paymentReference}` : ''}
-        ${data.clientCode ? `Código Cliente: ${data.clientCode}` : ''}
-        
-        📝 Razón del entrenador: "${record.decisionReason}"
-        ${record.notes ? `📌 Notas: "${record.notes}"` : ''}
-      `.trim();
+      const d = record.correctData;
+      const fields = [
+        `Tipo: ${record.receiptType}`,
+        `Decisión: ${record.decision}`,
+        `Banco: ${d.bankName}`,
+        d.city ? `Ciudad: ${d.city}` : null,
+        `Cuenta/Convenio: ${d.accountOrConvenio}`,
+        `Monto: ${d.amount}`,
+        `Fecha: ${d.date}`,
+        d.time ? `Hora: ${d.time}` : null,
+        d.rrn ? `RRN: ${d.rrn}` : null,
+        d.recibo ? `RECIBO: ${d.recibo}` : null,
+        d.apro ? `APRO: ${d.apro}` : null,
+        d.operacion ? `Operación: ${d.operacion}` : null,
+        d.comprobante ? `Comprobante: ${d.comprobante}` : null,
+        d.paymentReference ? `Referencia Pago: ${d.paymentReference}` : null,
+        d.clientCode ? `Código Cliente: ${d.clientCode}` : null,
+        d.creditCardLast4 ? `Tarjeta: ${d.creditCardLast4}` : null,
+        `Razón: ${record.decisionReason || ''}`,
+        record.notes ? `Notas: ${record.notes}` : null,
+      ].filter(Boolean).join('\n      ');
+      return `  EJEMPLO ${index + 1}:\n      ${fields}`;
     }).join('\n\n');
 
     return `
     
-    🎓 APRENDIZAJE PREVIO - APLICA ESTAS REGLAS:
+    🎓 ENTRENAMIENTO OBLIGATORIO — ${examples.length} EJEMPLOS VERIFICADOS POR HUMANOS:
     
-    Has sido entrenado con estos ${examples.length} ejemplos correctos. 
-    DEBES seguir estos patrones y reglas aprendidas:
+    Estos ejemplos son la VERDAD absoluta. Aprende de ellos y aplica las mismas reglas de extracción.
+    Las notas y razones del entrenador son INSTRUCCIONES DIRECTAS que debes seguir.
+    Si la imagen es similar a un ejemplo, extrae los datos de la MISMA forma.
+    Los ejemplos tienen MAYOR PRIORIDAD que cualquier otra regla del prompt.
     
-    ${examplesText}
-    
-    ⚠️ IMPORTANTE: Aplica las mismas reglas y patrones de estos ejemplos al analizar la nueva imagen.
-    Si encuentras un recibo similar a alguno de estos ejemplos, usa la misma lógica de extracción.
+${examplesText}
     `;
 
   } catch (error) {
@@ -134,296 +139,48 @@ const singleAnalysis = async (
 ): Promise<ExtractedData> => {
   const modelId = "gemini-2.5-flash";
 
-  const prompt = `
-    Analyze this image of a Colombian bank payment receipt (consignación or comprobante).
-    Types: Redeban (Thermal paper), Wompi/Corresponsal Bancolombia, Bancolombia App, Nequi (Purple screenshot), Banco Agrario, Davivienda.
-    
-    ⚠️ WOMPI RECEIPTS (Corresponsal Bancolombia via Wompi):
-    - Header shows "Wompi" and "Corresponsal Bancolombia"
-    - Fields: Recibo, RRN (can be 12+ digits!), Aprob (same as APRO), C. Único, Ter
-    - Format: "Recibo:283172  Ter:4MMD4W9338" and "RRN:804289283172 Aprob:747977 C. Único:59839"
-    - The RRN in Wompi is LONGER than Redeban (12 digits vs 6). Extract the FULL number.
-    - "Aprob" = same as "APRO" in Redeban. Extract it as the apro field.
-    - Convenio and Referencia fields are on separate labeled lines.
+  const prompt = `Eres un experto en análisis de recibos bancarios colombianos.
+
+TU TAREA: Analiza la imagen y extrae TODOS los datos visibles con precisión absoluta.
 
 ${trainingContext || ''}
 
-    ${trainingContext ? `🎯 ATENCIÓN CRÍTICA - REGLAS DE ENTRENAMIENTO OBLIGATORIAS:
+CAMPOS A EXTRAER (devuelve JSON estricto):
+- bankName (string): Nombre del banco o corresponsal
+- city (string|null): Ciudad si es visible
+- accountOrConvenio (string): Número de convenio o cuenta destino
+- amount (number): Monto sin puntos ni comas ni símbolo $
+- date (string): Fecha en YYYY-MM-DD. Meses español: ENE=01, FEB=02, MAR=03, ABR=04, MAY=05, JUN=06, JUL=07, AGO=08, SEP=09, OCT=10, NOV=11, DIC=12
+- time (string|null): Hora en HH:MM
+- rrn (string|null): Número RRN exacto como aparece (puede ser 6-12+ dígitos)
+- recibo (string|null): Número de RECIBO exacto como aparece
+- apro (string|null): Número APRO o Aprob exacto como aparece
+- operacion (string|null): Número de operación
+- comprobante (string|null): Número de comprobante
+- uniqueTransactionId (string|null): ID de transacción principal
+- paymentReference (string|null): Referencia de pago o código cliente
+- clientCode (string|null): Código del cliente si es visible
+- creditCardLast4 (string|null): Últimos 4 dígitos de tarjeta si aplica
+- isCreditCardPayment (boolean): true si es pago con tarjeta
+- imageQualityScore (number): Calidad de imagen 0-100
+- confidenceScore (number): Tu confianza en la extracción 0-100
+- isScreenshot (boolean): true si es captura de app, false si es recibo físico
+- hasPhysicalReceipt (boolean): true si tiene RRN/RECIBO/APRO (estilo Redeban/Wompi)
+- isReadable (boolean): true si es legible
+- hasAmbiguousNumbers (boolean): true si algún número es dudoso
+- ambiguousFields (string[]): Lista de campos con números dudosos
+- rawText (string): TODO el texto visible de la imagen, mínimo 500 caracteres. NUNCA truncar.
 
-Los ejemplos de entrenamiento mostrados arriba son REGLAS OBLIGATORIAS que DEBES seguir EXACTAMENTE.
+REGLAS FUNDAMENTALES:
+1. NUNCA inventes datos. Si no ves un campo claramente, déjalo null.
+2. Extrae números EXACTAMENTE como aparecen, incluyendo ceros iniciales.
+3. Si hay entrenamientos arriba, son INSTRUCCIONES DIRECTAS del humano — síguelas al pie de la letra.
+4. rawText debe incluir TODAS las líneas del recibo, especialmente RECIBO, RRN, APRO, CONVENIO, REF, VALOR.
+5. Para Redeban/Wompi térmicos, RRN + RECIBO + APRO son OBLIGATORIOS — si no los encuentras, baja el score.
+6. Sé DETERMINISTA: la misma imagen siempre debe dar el mismo resultado.
 
-⚠️ REGLAS IMPORTANTES (APLICAN A TODOS LOS TIPOS DE RECIBO Y BANCOS):
-1. Si encuentras un recibo que coincide con un ejemplo de entrenamiento ACCEPT y tiene:
-   - Valor legible (amount > 0)
-   - Fecha legible (date no vacío)
-   - Al menos un identificador de transacción (comprobante, operacion, rrn, recibo, apro) O cuenta/convenio legible
-   
-   ENTONCES: DEBES extraer los datos normalmente y NO marcar como "requiere autorización".
-   Estos recibos SON VÁLIDOS según el entrenamiento, independientemente del banco o tipo.
+Responde ÚNICAMENTE con JSON válido, sin markdown ni explicaciones.`;
 
-2. Aplica EXACTAMENTE las mismas reglas, patrones y lógica indicadas en la "Razón del entrenador" y "Notas" de cada ejemplo.
-
-3. NO pidas autorización si el recibo cumple las condiciones de los entrenamientos aceptados.
-
-4. Los recibos digitales (capturas de app) con comprobante/operacion son SOPORTES DIGITALES VÁLIDOS según el entrenamiento.
-
-5. Esta regla aplica para TODOS los bancos y tipos de recibo: Bancolombia, Nequi, Banco Agrario, Davivienda, Banco de Bogotá, Occidente, y cualquier otro banco que aparezca en los ejemplos.
-
-6. Si el recibo es similar a un ejemplo de entrenamiento pero de un banco diferente, aplica la misma lógica si el formato es equivalente.` : ''}
-
-    ⚠️ CRITICAL EXTRACTION RULES - READ CAREFULLY:
-    
-    🔒 SEGURIDAD ANTI-FRAUDE - MÁXIMA PRIORIDAD:
-    
-    ⛔ REGLA DE ORO: ES MEJOR RECHAZAR UN RECIBO BUENO QUE APROBAR UNO CON NÚMEROS INCORRECTOS
-    
-    CONFUSIONES COMUNES QUE DEBES DETECTAR:
-    - 3 ↔ 8 (MUY COMÚN en impresiones térmicas)
-    - 1 ↔ 7
-    - 0 ↔ O ↔ 8
-    - 5 ↔ S ↔ 6
-    - 6 ↔ 8 ↔ 0
-    - 2 ↔ Z
-    
-    INSTRUCCIONES ESTRICTAS:
-    1. Si la imagen está BORROSA o tiene mala calidad → imageQualityScore < 50, isReadable=false
-    2. Si CUALQUIER dígito de un número de transacción no se ve 100% claro → hasAmbiguousNumbers=true
-    3. Si hay CUALQUIER posibilidad de confusión entre dígitos similares → confidenceScore < 80
-    4. NUNCA ADIVINES. Si tienes la más mínima duda, reporta ambiguousFields con ese campo
-    5. En papel térmico arrugado/borroso, SIEMPRE baja el confidenceScore significativamente
-    
-    EJEMPLOS DE RECHAZO OBLIGATORIO:
-    - Número "292652588" pero el 8 final podría ser 3 → hasAmbiguousNumbers=true, ambiguousFields=["operacion"]
-    - Recibo Redeban muy borroso donde no se leen bien los números → imageQualityScore=40, isReadable=false
-    - Cualquier dígito con tinta corrida o manchada → confidenceScore < 70
-    
-    1. **🔑 MÚLTIPLES NÚMEROS ÚNICOS (ABSOLUTELY CRITICAL)**:
-       ⛔ CADA UNO ES ÚNICO Y NUNCA SE PUEDE REPETIR
-       
-       **EXTRACT ALL PRESENT:**
-       
-       A) **RRN** (Red de Recaudo Nacional):
-          • Labels: "RRN:", "RRN", "Red Recaudo"
-          • Usually 6-9 digits
-          • Example: "RRN: 061010" → "061010"
-       
-       B) **RECIBO** (Número de Recibo):
-          • Labels: "RECIBO:", "No. Recibo", "Num Recibo"
-          • Usually 6-7 digits
-       
-       C) **APRO** (Código de Aprobación):
-          • Labels: "APRO:", "APROBACION:", "Cod. Apro", "Autorización"
-       
-       D) **OPERACION** (Número de Operación):
-          • Labels: "Operación:", "No. Operación", "Registro de Operación"
-          • Common in Banco Agrario, Bancolombia physical receipts
-          • Example: "Registro de Operación: 292652533" → "292652533"
-       
-       E) **COMPROBANTE** (Número de Comprobante):
-          • Labels: "Comprobante No.", "No Comprobante"
-       
-       F) **BANCO DE BOGOTÁ - COMPROBANTE DE RECAUDOS (FORMATO ESPECIAL)**:
-          ⚠️ En recibos de "Comprobante de Recaudos" de Banco de Bogotá:
-          • El número de aprobación está en formato: "Srv XXXX AQXXXXXX"
-          • Ejemplo: "Srv 2121 AQ032201" → operacion="2121AQ032201"
-          • EXTRAER COMPLETO incluyendo "AQ" y todos los dígitos
-          • NO confundir con:
-            - "Usu6150" (usuario, ignorar)
-            - "T157" (terminal, ignorar)
-            - "Us:749805890937257" (referencia cliente, va en paymentReference)
-          
-          **EJEMPLO BANCO DE BOGOTÁ:**
-          "Srv 2121 AQ032201 Usu6150 T157"
-          → operacion = "2121AQ032201" ✅
-          → uniqueTransactionId = "2121AQ032201"
-          
-          "Us:749805890937257"
-          → paymentReference = "749805890937257"
-          
-          "CEO 1709" + "CERVECERIA UNION"
-          → accountOrConvenio = "1709"
-          → clientCode = "10813353"
-       
-       ⚠️ CRITICAL:
-       - Extract COMPLETE values - NO truncation
-       - If unclear, mark confidenceScore LOW and hasAmbiguousNumbers=true
-       - Put the most prominent ID in uniqueTransactionId for backward compatibility
-    
-    2. **🏦 BANCO Y CIUDAD**:
-       - Extract bank name: "Bancolombia", "Banco Agrario", "Nequi", "Davivienda", etc.
-       - Look for "Sucursal:", "Ciudad:", "Oficina:" for location
-       - Example: "Sucursal: 549 - PLAZA DEL RIO, Ciudad: APARTADO" → city="APARTADO"
-       - If multiple cities mentioned, use the one most clearly marked
-    
-    2B. **💳 CUENTA DESTINO vs REFERENCIA DE PAGO (MUY IMPORTANTE)**:
-       
-       ⚠️ REGLAS CLARAS PARA CADA TIPO DE RECIBO:
-       
-       **accountOrConvenio** = CUENTA/CONVENIO DESTINO:
-       - "Número de producto:", "Cuenta:", "Producto No:", "Convenio:"
-       - Este es el número de cuenta o convenio donde se depositó
-       
-       **paymentReference** = NÚMERO DE CUENTA O CÓDIGO CLIENTE:
-       - Para BANCOLOMBIA (depósitos a cuenta): Usar el MISMO número de producto/cuenta
-         → "Número de producto: 24500020950" → paymentReference="24500020950"
-       - Para RECAUDOS (convenios): Usar el código cliente o referencia
-         → "Codigo cliente: 10813353" → paymentReference="10813353"
-         → "Ref 1: 10813353" → paymentReference="10813353"
-       
-       **⚠️ IMPORTANTE - BANCOLOMBIA DEPÓSITOS:**
-       Cuando es un DEPÓSITO A CUENTA CORRIENTE/AHORROS de Bancolombia:
-       - accountOrConvenio = Número de producto (ej: "24500020950")
-       - paymentReference = TAMBIÉN el número de producto (ej: "24500020950")
-       - NO usar el "Id Depositante/Pagador" - ese es quien deposita, no es relevante
-       
-       **EJEMPLO DEPÓSITO BANCOLOMBIA:**
-       - "Número de producto: 24500020950" → accountOrConvenio="24500020950"
-       - "Número de producto: 24500020950" → paymentReference="24500020950" ✅
-       - "Id Depositante/Pagador: 901284158" → IGNORAR (no usar)
-       
-       **EJEMPLO RECAUDO/CONVENIO:**
-       - "Convenio: 32137" → accountOrConvenio="32137"
-       - "Codigo cliente cervunion: 10813353" → paymentReference="10813353"
-       
-       **EJEMPLO BANCO AGRARIO - RECAUDO DE CONVENIOS:**
-       Formato típico:
-       - "Convenio: 18129 WS - CERVECERIA UNION S.A - RM"
-       - "Ref 1: 13937684"
-       - "Ref 2: 13937684"
-       - "Operación: 604184018"
-       
-       Extracción correcta:
-       - accountOrConvenio = "18129" (solo el número del convenio, sin "WS")
-       - paymentReference = "13937684" (el código Ref 1)
-       - operacion = "604184018"
-       - bankName = "Banco Agrario"
-       - city = extraer de "Oficina: 3360-RIOSUCIO (CHOCO)" → "RIOSUCIO"
-       
-       ⚠️ El Ref 1/Ref 2 es el CÓDIGO DEL CLIENTE - SIEMPRE ponerlo en paymentReference
-    
-    3. **🍺 CERVECERÍA UNIÓN DETECTION (CRITICAL)**:
-       - ALWAYS set clientCode="10813353" if ANY of these conditions are met:
-       
-       A) **By Keywords**:
-          - "Cerveceria Union", "CERVECERÍA UNIÓN", "Cervunion"
-          - "RIN CERVECERIA", "RIN CERVECERÍA UNI-N"
-          - "CEO 1709", "CERVECERIA S.A"
-       
-       B) **By Convenio Number**:
-          - Convenio 32137 = CERVECERÍA UNIÓN T R
-          - Convenio 56885 = RIN CERVECERÍA UNIÓN  
-          - Convenio/CEO 1709 = CERVECERÍA UNIÓN S.A
-          - Convenio 18129 = CERVECERÍA UNION S.A - RM
-       
-       C) **By Reference**:
-          - If reference contains "10813353"
-          - If "Codigo cliente cervunion" shows 10813353
-          - If reference is "749805890937257" (internal bank reference for Cervunion)
-       
-       ⚠️ If detected as Cervecería Unión, ALWAYS return clientCode="10813353"
-       
-       ⚠️ IMPORTANTE - REFERENCIAS INTERNAS DEL BANCO:
-       Si el recibo es de Cervecería Unión Y la referencia es "749805890937257":
-       - Este es un número interno del banco, NO el código del cliente
-       - paymentReference DEBE SER "10813353" (el código real del cliente)
-       - NO usar "749805890937257" como paymentReference
-       
-       EJEMPLO:
-       - Convenio: 32137 - CERVECERIA UNION
-       - REF: 749805890937257
-       → paymentReference = "10813353" ✅ (NO "749805890937257")
-    
-    4. **💳 PAGOS CON TARJETA DE CRÉDITO (IMPORTANTE)**:
-       Si el recibo muestra "TARJETA DE CREDITO" con números enmascarados:
-       - "TARJETA DE CREDITO: ************4998"
-       - "TARJETA: **** **** **** 4998"
-       
-       **EXTRAER:**
-       - creditCardLast4 = últimos 4 dígitos de la tarjeta (ej: "4998")
-       - paymentReference = últimos 4 dígitos de la tarjeta (ej: "4998")
-       - isCreditCardPayment = true
-       
-       **⚠️ NO CONFUNDIR con:**
-       - C.UNICO: Este es el código único del corresponsal, NO la referencia de pago
-       - El C.UNICO (ej: 3007012166) NO debe usarse como accountOrConvenio
-       
-       **EJEMPLO PAGO CON TARJETA:**
-       - "PAGO"
-       - "TARJETA DE CREDITO: ************4998"
-       - "C.UNICO: 3007012166"
-       
-       Extracción correcta:
-       - paymentReference = "4998" (últimos 4 dígitos tarjeta)
-       - creditCardLast4 = "4998"
-       - isCreditCardPayment = true
-       - accountOrConvenio = "" (no hay cuenta/convenio, es pago con tarjeta)
-    
-    5. **📱 SCREENSHOT VS PHYSICAL RECEIPT**:
-       - isScreenshot=true if: App screenshot, phone status bar visible, Nequi purple background
-       - isScreenshot=false if: Thermal paper, physical printer output
-       - hasPhysicalReceipt=true ONLY if there's a RECIBO/RRN/APRO number (Redeban style)
-       - Screenshots from Bancolombia App usually have "Comprobante" but NO physical receipt number
-    
-    6. **📅 DATE (CRITICAL - REJECT IF MISSING)**:
-       - Extract date in YYYY-MM-DD format
-       - Handle text months: "27 Dic 2025" → "2025-12-27"
-       - Spanish months: ENE=01, FEB=02, MAR=03, ABR=04, MAY=05, JUN=06, JUL=07, AGO=08, SEP=09, OCT=10, NOV=11, DIC=12
-       - ⚠️ If NO date visible, return empty string - this will be REJECTED
-    
-    7. **⏰ TIME**:
-       - Extract time in HH:MM format
-       - Normalize to 24h format
-    
-    8. **💵 AMOUNT**:
-       - Extract total amount as NUMBER (no currency symbol)
-       - "$ 1.000.000,00" → 1000000
-       - "$120,000,000.00" → 120000000
-    
-    9. **🎯 CONFIDENCE SCORE (0-100) - SÉ ESTRICTO**:
-       - 95-100: SOLO si TODOS los números son 100% claros, papel perfecto, sin ninguna duda
-       - 85-94: Números claros pero papel ligeramente arrugado
-       - 70-84: Algunos caracteres con leve borrosidad - DEBE REPORTAR ambiguousFields
-       - 50-69: Caracteres borrosos o confusos - DEBE RECHAZARSE
-       - 0-49: Ilegible o muy mala calidad - RECHAZO INMEDIATO
-       
-       ⚠️ BAJA EL SCORE AGRESIVAMENTE SI:
-       - Papel térmico arrugado o doblado → máximo 80
-       - Cualquier número con posible confusión 3/8/0/6 → máximo 75
-       - Imagen borrosa o desenfocada → máximo 60
-       - Tinta corrida o manchada → máximo 50
-       - Si tienes que "adivinar" algún dígito → máximo 65
-
-    10. **🚫 AMBIGUOUS NUMBERS - OBLIGATORIO REPORTAR**:
-       - hasAmbiguousNumbers=true si hay CUALQUIER duda en CUALQUIER número
-       - ambiguousFields: LISTA TODOS los campos donde hay incertidumbre
-       
-       EJEMPLOS OBLIGATORIOS DE REPORTE:
-       - Número termina en algo que podría ser 3 u 8 → ambiguousFields=["operacion"]
-       - RRN borroso → ambiguousFields=["rrn"]
-       - Múltiples campos dudosos → ambiguousFields=["operacion", "rrn", "recibo"]
-       
-       ⛔ Si la imagen de Redeban está borrosa/desenfocada:
-       - imageQualityScore debe ser < 60
-       - isReadable debe ser false
-       - hasAmbiguousNumbers debe ser true
-
-    11. **📜 RAW TEXT - ABSOLUTAMENTE CRÍTICO**:
-       - rawText DEBE contener TODO el texto visible de la imagen, mínimo 500 caracteres.
-       - NUNCA truncar rawText. Incluir TODAS las líneas, especialmente las que contienen:
-         RECIBO, RRN, APRO, CONVENIO, REF, VALOR, OPERACION, UPC, C.UNICO, TER
-       - Para recibos Redeban térmicos, las líneas "RECIBO: XXXXX  RRN: XXXXX  APRO: XXXXX" 
-         son LAS MÁS IMPORTANTES y deben aparecer COMPLETAS en rawText.
-       - Si no incluyes estas líneas en rawText, la extracción será incorrecta.
-
-    12. **⚠️ REDEBAN TÉRMICO - TRIPLETA OBLIGATORIA**:
-       - En TODOS los recibos que digan "Redeban" DEBES extraer RRN, RECIBO y APRO.
-       - Estos 3 campos SIEMPRE están en el recibo, generalmente en la misma línea o líneas contiguas.
-       - Formato típico: "RECIBO: 224936   RRN: 228331   APRO: 096133"
-       - Si NO los encuentras, reduce confidenceScore a 50 y marca hasAmbiguousNumbers=true.
-       - NUNCA inventes números. Si no se leen, deja el campo vacío y baja el score.
-
-    Return strictly JSON with all extracted data.
-  `;
 
   try {
     const response = await ai.models.generateContent({
