@@ -1092,7 +1092,14 @@ const App: React.FC = () => {
         }
       };
 
-      const rawResults = await Promise.all(files.map(processFile));
+      // Limitar concurrencia para evitar picos de TPM/cuota en proveedores de IA
+      const rawResults: Array<Partial<ConsignmentRecord> | null> = [];
+      const CONCURRENCY_LIMIT = 2;
+      for (let i = 0; i < files.length; i += CONCURRENCY_LIMIT) {
+        const chunk = files.slice(i, i + CONCURRENCY_LIMIT);
+        const chunkResults = await Promise.all(chunk.map(processFile));
+        rawResults.push(...chunkResults);
+      }
       const validRawResults = rawResults.filter((r): r is Partial<ConsignmentRecord> => r !== null);
 
       if (validRawResults.length === 0 && files.length > 0) {

@@ -67,6 +67,44 @@ function normalizeDigits(value?: string | null): string {
     return String(value).trim().replace(/\s+/g, '');
 }
 
+function parseSpanishDateTimeFromRawText(rawText: string): { date?: string; time?: string } {
+    const monthMap: Record<string, string> = {
+        ENE: '01',
+        FEB: '02',
+        MAR: '03',
+        ABR: '04',
+        MAY: '05',
+        JUN: '06',
+        JUL: '07',
+        AGO: '08',
+        SEP: '09',
+        OCT: '10',
+        NOV: '11',
+        DIC: '12'
+    };
+
+    // Ejemplo esperado: "ENE 27 2026 10:43:28"
+    const m = rawText.match(/\b(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)\s+(\d{1,2})\s+(\d{4})\s+(\d{1,2}):(\d{2})(?::\d{2})?/i);
+    if (!m) return {};
+
+    const month = monthMap[m[1].toUpperCase()];
+    const day = m[2].padStart(2, '0');
+    const year = m[3];
+    const hour = m[4].padStart(2, '0');
+    const minute = m[5];
+
+    if (!month) return {};
+    return {
+        date: `${year}-${month}-${day}`,
+        time: `${hour}:${minute}`
+    };
+}
+
+function isRateLimitError(error: any): boolean {
+    const message = String(error?.message || '').toLowerCase();
+    return message.includes('rate limit') || message.includes('429') || error?.status === 429;
+}
+
 function applyCerveceriaReferenceRule(data: ExtractedData): ExtractedData {
     const text = (data.rawText || '').toLowerCase();
     const convenio = normalizeDigits(data.accountOrConvenio);
@@ -125,11 +163,24 @@ function normalizeRedebanLikeReceipt(data: ExtractedData): ExtractedData {
     const isRedebanLike = lower.includes('redeban') || lower.includes('corresponsal') || lower.includes('wompi');
     if (!isRedebanLike) return data;
 
-    const rrn = normalizeDigits(text.match(/rrn\s*[:\-]?\s*([A-Z0-9]+)/i)?.[1] || data.rrn);
-    const recibo = normalizeDigits(text.match(/recibo\s*[:\-]?\s*([A-Z0-9]+)/i)?.[1] || data.recibo);
-    const apro = normalizeDigits(text.match(/apro\s*[:\-]?\s*([A-Z0-9]+)/i)?.[1] || data.apro);
+    const rrn = normalizeDigits(
+        text.match(/(?:^|\n)\s*rrn\s*[:\-]?\s*([A-Z0-9]{4,})/im)?.[1] ||
+        text.match(/\brrn[^A-Z0-9]{0,8}([A-Z0-9]{4,})/i)?.[1] ||
+        data.rrn
+    );
+    const recibo = normalizeDigits(
+        text.match(/(?:^|\n)\s*recib(?:o)?\s*[:\-]?\s*([A-Z0-9]{4,})/im)?.[1] ||
+        text.match(/\brecib(?:o)?[^A-Z0-9]{0,8}([A-Z0-9]{4,})/i)?.[1] ||
+        data.recibo
+    );
+    const apro = normalizeDigits(
+        text.match(/(?:^|\n)\s*apro(?:b)?\s*[:\-]?\s*([A-Z0-9]{4,})/im)?.[1] ||
+        text.match(/\bapro(?:b)?[^A-Z0-9]{0,8}([A-Z0-9]{4,})/i)?.[1] ||
+        data.apro
+    );
     const convenio = normalizeDigits(text.match(/convenio\s*[:\-]?\s*([0-9]+)/i)?.[1] || data.accountOrConvenio);
     const ref = normalizeDigits(text.match(/ref(?:erencia)?\s*[:\-]?\s*([A-Z0-9]+)/i)?.[1] || data.paymentReference);
+    const parsedDateTime = parseSpanishDateTimeFromRawText(text);
 
     const primaryId = recibo || data.comprobante || data.operacion || data.uniqueTransactionId;
 
@@ -140,8 +191,12 @@ function normalizeRedebanLikeReceipt(data: ExtractedData): ExtractedData {
         apro: apro || data.apro,
         accountOrConvenio: convenio || data.accountOrConvenio,
         paymentReference: ref || data.paymentReference,
+        // En este formato el recibo es el identificador más estable para comparación.
+        operacion: data.operacion || primaryId,
         comprobante: data.comprobante || primaryId,
         uniqueTransactionId: data.uniqueTransactionId || primaryId,
+        date: parsedDateTime.date || data.date,
+        time: parsedDateTime.time || data.time,
     };
 }
 
@@ -238,18 +293,47 @@ export async function analyzeReceipt(
 
             case AIModel.GPT4_MINI:
                 console.log('🟢 Analizando con GPT-4o-mini...');
-                result = applyDeterministicReceiptRules(await analyzeWithGPT4(base64Image, mimeType, trainingExamples));
-                usedModel = AIModel.GPT4_MINI;
+                try {
+                    result = applyDeterministicReceiptRules(await analyzeWithGPT4(base64Image, mimeType, trainingExamples));
+                    usedModel = AIModel.GPT4_MINI;
+                } catch (gptError: any) {
+                    if (!isRateLimitError(gptError)) throw gptError;
+                    console.warn('⚠️ GPT-4o-mini saturado por cuota/TPM. Usando fallback automático a Gemini.');
+                    result = applyDeterministicReceiptRules(await analyzeWithGemini(base64Image, mimeType));
+                    usedModel = AIModel.GEMINI;
+                }
                 break;
 
             case AIModel.CONSENSUS:
                 console.log('🔄 Modo consenso: analizando con ambos modelos...');
-                const [geminiResult, gpt4Result] = await Promise.all([
+                const [geminiResultSettled, gpt4ResultSettled] = await Promise.allSettled([
                     analyzeWithGemini(base64Image, mimeType),
                     analyzeWithGPT4(base64Image, mimeType, trainingExamples)
                 ]);
-                const normalizedGemini = applyDeterministicReceiptRules(geminiResult);
-                const normalizedGpt4 = applyDeterministicReceiptRules(gpt4Result);
+
+                const geminiResult = geminiResultSettled.status === 'fulfilled' ? geminiResultSettled.value : null;
+                const gpt4Result = gpt4ResultSettled.status === 'fulfilled' ? gpt4ResultSettled.value : null;
+
+                if (!geminiResult && !gpt4Result) {
+                    throw new Error('Fallaron ambos modelos en modo consenso.');
+                }
+
+                if (geminiResult && !gpt4Result) {
+                    console.warn('⚠️ GPT-4o-mini falló en consenso. Continuando con Gemini.');
+                    result = applyDeterministicReceiptRules(geminiResult);
+                    usedModel = AIModel.GEMINI;
+                    break;
+                }
+
+                if (!geminiResult && gpt4Result) {
+                    console.warn('⚠️ Gemini falló en consenso. Continuando con GPT-4o-mini.');
+                    result = applyDeterministicReceiptRules(gpt4Result);
+                    usedModel = AIModel.GPT4_MINI;
+                    break;
+                }
+
+                const normalizedGemini = applyDeterministicReceiptRules(geminiResult!);
+                const normalizedGpt4 = applyDeterministicReceiptRules(gpt4Result!);
 
                 // Comparar resultados
                 const agreement = calculateAgreement(normalizedGemini, normalizedGpt4);

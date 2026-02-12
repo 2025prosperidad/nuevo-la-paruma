@@ -8,15 +8,30 @@ const openai = new OpenAI({
     dangerouslyAllowBrowser: true // Solo para desarrollo, en producción usar proxy
 });
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const isRateLimitError = (error: any): boolean => {
+    const message = String(error?.message || '').toLowerCase();
+    return message.includes('rate limit') || message.includes('429') || error?.status === 429;
+};
+
+const getRetryDelayMs = (error: any, fallbackMs: number): number => {
+    const message = String(error?.message || '');
+    const match = message.match(/try again in\s+(\d+)ms/i);
+    if (match) return Number(match[1]) + 250;
+    return fallbackMs;
+};
+
 /**
  * Construir prompt mejorado con ejemplos de entrenamiento
  */
 function buildPromptWithTraining(trainingExamples: TrainingRecord[]): string {
-    const examplesText = trainingExamples.length > 0
-        ? trainingExamples.map((t, i) => `
+    const compactExamples = trainingExamples.slice(0, 4);
+    const examplesText = compactExamples.length > 0
+        ? compactExamples.map((t, i) => `
 EJEMPLO ${i + 1} (${t.receiptType}):
 - Decisión: ${t.decision}
-- Razón: ${t.decisionReason}
+- Razón: ${String(t.decisionReason || '').substring(0, 180)}
 - Banco: ${t.correctData.bankName}
 - Monto: ${t.correctData.amount}
 - Comprobante: ${t.correctData.comprobante || t.correctData.operacion || 'N/A'}
@@ -104,31 +119,46 @@ export async function analyzeWithGPT4(
     mimeType: string = 'image/jpeg',
     trainingExamples: TrainingRecord[] = []
 ): Promise<ExtractedData> {
-    try {
-        const prompt = buildPromptWithTraining(trainingExamples);
+    const prompt = buildPromptWithTraining(trainingExamples);
+    let response: any;
 
-        const response = await openai.chat.completions.create({
-            model: 'gpt-4o-mini',
-            messages: [
-                {
-                    role: 'user',
-                    content: [
-                        { type: 'text', text: prompt },
-                        {
-                            type: 'image_url',
-                            image_url: {
-                                url: `data:${mimeType};base64,${base64Image}`,
-                                detail: 'high'
+    // Reintento controlado para errores transitorios de cuota/TPM
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            response = await openai.chat.completions.create({
+                model: 'gpt-4o-mini',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: prompt },
+                            {
+                                type: 'image_url',
+                                image_url: {
+                                    url: `data:${mimeType};base64,${base64Image}`,
+                                    detail: 'high'
+                                }
                             }
-                        }
-                    ]
-                }
-            ],
-            temperature: 0, // DETERMINISTA
-            max_tokens: 2000,
-            response_format: { type: 'json_object' }
-        });
+                        ]
+                    }
+                ],
+                temperature: 0, // DETERMINISTA
+                max_tokens: 1200,
+                response_format: { type: 'json_object' }
+            });
+            break;
+        } catch (error: any) {
+            if (!isRateLimitError(error) || attempt === 2) {
+                throw error;
+            }
 
+            const delayMs = getRetryDelayMs(error, 1200 * (attempt + 1));
+            console.warn(`⏳ GPT-4o-mini rate-limited, reintentando en ${delayMs}ms (intento ${attempt + 2}/3)...`);
+            await sleep(delayMs);
+        }
+    }
+
+    try {
         const content = response.choices[0]?.message?.content;
         if (!content) {
             throw new Error('No se recibió respuesta de GPT-4o-mini');
